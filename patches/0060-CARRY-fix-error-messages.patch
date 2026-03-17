@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Marko=20Mudrini=C4=87?= <mudrinic.mare@gmail.com>
+Date: Thu, 12 Mar 2026 11:16:08 +0100
+Subject: [PATCH] CARRY: fix error messages
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Signed-off-by: Marko Mudrinić <mudrinic.mare@gmail.com>
+---
+ .../k8s.io/apiserver/pkg/registry/generic/registry/store.go   | 4 ++--
+ staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go       | 2 --
+ 2 files changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
+--- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
++++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
+@@ -1559,8 +1559,8 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
+ 	if (e.KeyRootFunc == nil) != (e.KeyFunc == nil) {
+ 		return fmt.Errorf("store for %s must set both KeyRootFunc and KeyFunc or neither", e.DefaultQualifiedResource.String())
+ 	}
+-	if e.KeyFunc != nil || e.KeyFunc != nil {
+-		return fmt.Errorf("DEBUG: keyfunc must be non-nil for all resources", e.DefaultQualifiedResource.String())
++	if e.KeyFunc != nil {
++		return fmt.Errorf("keyfunc must be non-nil for all resources", e.DefaultQualifiedResource.String())
+ 	}
+ 
+ 	if e.TableConvertor == nil {
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
+@@ -28,7 +28,6 @@ import (
+ 	"sync"
+ 	"time"
+ 
+-	"github.com/davecgh/go-spew/spew"
+ 	"github.com/kcp-dev/logicalcluster/v3"
+ 	"go.etcd.io/etcd/api/v3/mvccpb"
+ 	clientv3 "go.etcd.io/etcd/client/v3"
+@@ -1172,7 +1171,6 @@ func (s *store) decode(codec runtime.Codec, versioner storage.Versioner, value [
+ 	}
+ 	err := s.decoder.Decode(value, objPtr, rev)
+ 	if err != nil {
+-		spew.Dump(err)
+ 		return err
+ 	}
+ 	// being unable to set the version does not prevent the object from being extracted

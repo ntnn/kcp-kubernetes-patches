@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Sun, 12 Apr 2026 00:07:03 +0200
+Subject: [PATCH] UPSTREAM: <carry>: Clusterize GC objectReference
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../garbagecollector/garbagecollector.go          |  4 ++--
+ pkg/controller/garbagecollector/graph.go          | 15 ++++++++++-----
+ pkg/controller/garbagecollector/graph_builder.go  |  3 +++
+ 3 files changed, 15 insertions(+), 7 deletions(-)
+
+diff --git a/pkg/controller/garbagecollector/garbagecollector.go b/pkg/controller/garbagecollector/garbagecollector.go
+--- a/pkg/controller/garbagecollector/garbagecollector.go
++++ b/pkg/controller/garbagecollector/garbagecollector.go
+@@ -385,7 +385,7 @@ func (gc *GarbageCollector) isDangling(ctx context.Context, reference metav1.Own
+ 
+ 	logger := klog.FromContext(ctx)
+ 	// check for recorded absent cluster-scoped parent
+-	absentOwnerCacheKey := objectReference{OwnerReference: ownerReferenceCoordinates(reference)}
++	absentOwnerCacheKey := objectReference{OwnerReference: ownerReferenceCoordinates(reference), Cluster: item.identity.Cluster}
+ 	if gc.absentOwnerCache.Has(absentOwnerCacheKey) {
+ 		logger.V(5).Info("according to the absentOwnerCache, item's owner does not exist",
+ 			"item", item.identity,
+@@ -431,7 +431,7 @@ func (gc *GarbageCollector) isDangling(ctx context.Context, reference metav1.Own
+ 	// TODO: It's only necessary to talk to the API server if the owner node
+ 	// is a "virtual" node. The local graph could lag behind the real
+ 	// status, but in practice, the difference is small.
+-	owner, err = gc.metadataClient.Resource(resource).Namespace(resourceDefaultNamespace(namespaced, item.identity.Namespace)).Get(ctx, reference.Name, metav1.GetOptions{})
++	owner, err = gc.metadataClient.Resource(resource).Namespace(resourceDefaultNamespace(namespaced, item.identity.Namespace)).Get(WithCluster(ctx, item.identity.Cluster), reference.Name, metav1.GetOptions{})
+ 	switch {
+ 	case errors.IsNotFound(err):
+ 		gc.absentOwnerCache.Add(absentOwnerCacheKey)
+diff --git a/pkg/controller/garbagecollector/graph.go b/pkg/controller/garbagecollector/graph.go
+--- a/pkg/controller/garbagecollector/graph.go
++++ b/pkg/controller/garbagecollector/graph.go
+@@ -24,29 +24,34 @@ import (
+ 
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	"k8s.io/apimachinery/pkg/types"
++
++	"github.com/kcp-dev/logicalcluster/v3"
+ )
+ 
+ type objectReference struct {
+ 	metav1.OwnerReference
+ 	// This is needed by the dynamic client
+ 	Namespace string
++	Cluster   logicalcluster.Name
+ }
+ 
+ // String is used when logging an objectReference in text format.
+ func (s objectReference) String() string {
+-	return fmt.Sprintf("[%s/%s, namespace: %s, name: %s, uid: %s]", s.APIVersion, s.Kind, s.Namespace, s.Name, s.UID)
++	return fmt.Sprintf("[%s/%s, cluster: %s, namespace: %s, name: %s, uid: %s]", s.APIVersion, s.Kind, s.Cluster, s.Namespace, s.Name, s.UID)
+ }
+ 
+ // MarshalLog is used when logging an objectReference in JSON format.
+ func (s objectReference) MarshalLog() interface{} {
+ 	return struct {
+-		Name       string    `json:"name"`
+-		Namespace  string    `json:"namespace"`
+-		APIVersion string    `json:"apiVersion"`
+-		UID        types.UID `json:"uid"`
++		Name       string              `json:"name"`
++		Namespace  string              `json:"namespace"`
++		Cluster    logicalcluster.Name `json:"cluster,omitempty"`
++		APIVersion string              `json:"apiVersion"`
++		UID        types.UID           `json:"uid"`
+ 	}{
+ 		Namespace:  s.Namespace,
+ 		Name:       s.Name,
++		Cluster:    s.Cluster,
+ 		APIVersion: s.APIVersion,
+ 		UID:        s.UID,
+ 	}
+diff --git a/pkg/controller/garbagecollector/graph_builder.go b/pkg/controller/garbagecollector/graph_builder.go
+--- a/pkg/controller/garbagecollector/graph_builder.go
++++ b/pkg/controller/garbagecollector/graph_builder.go
+@@ -453,6 +453,7 @@ func (gb *GraphBuilder) addDependentToOwners(logger klog.Logger, n *node, owners
+ 				identity: objectReference{
+ 					OwnerReference: ownerReferenceCoordinates(owner),
+ 					Namespace:      n.identity.Namespace,
++					Cluster:        n.identity.Cluster,
+ 				},
+ 				dependents: make(map[*node]struct{}),
+ 				virtual:    true,
+@@ -530,6 +531,7 @@ func (gb *GraphBuilder) reportInvalidNamespaceOwnerRef(n *node, invalidOwnerUID
+ 			UID:        invalidOwnerRef.UID,
+ 		},
+ 		Namespace: n.identity.Namespace,
++		Cluster:   n.identity.Cluster,
+ 	}
+ 	gb.eventRecorder.Eventf(ref, v1.EventTypeWarning, "OwnerRefInvalidNamespace", "ownerRef %s does not exist in namespace %q", invalidIdentity, n.identity.Namespace)
+ }
+@@ -695,6 +697,7 @@ func identityFromEvent(event *event, accessor metav1.Object) objectReference {
+ 			Name:       accessor.GetName(),
+ 		},
+ 		Namespace: accessor.GetNamespace(),
++		Cluster:   logicalcluster.From(accessor),
+ 	}
+ }
+ 

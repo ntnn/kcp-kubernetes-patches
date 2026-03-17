@@ -1,0 +1,667 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
+Date: Fri, 23 Aug 2024 08:23:28 +0200
+Subject: [PATCH] UPSTREAM: <carry>: authz: add warrants to default rule
+ resolver
+
+Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+---
+ pkg/registry/rbac/validation/kcp.go      | 206 ++++++++++++++--
+ pkg/registry/rbac/validation/kcp_test.go | 293 +++++++++++++++++++++--
+ pkg/registry/rbac/validation/rule.go     |   2 +-
+ 3 files changed, 464 insertions(+), 37 deletions(-)
+
+diff --git a/pkg/registry/rbac/validation/kcp.go b/pkg/registry/rbac/validation/kcp.go
+--- a/pkg/registry/rbac/validation/kcp.go
++++ b/pkg/registry/rbac/validation/kcp.go
+@@ -2,10 +2,12 @@ package validation
+ 
+ import (
+ 	"context"
++	"fmt"
+ 	"strings"
+ 
+ 	"github.com/kcp-dev/logicalcluster/v3"
+ 	rbacv1 "k8s.io/api/rbac/v1"
++	"k8s.io/apimachinery/pkg/util/json"
+ 	"k8s.io/apimachinery/pkg/util/sets"
+ 	authserviceaccount "k8s.io/apiserver/pkg/authentication/serviceaccount"
+ 	"k8s.io/apiserver/pkg/authentication/user"
+@@ -13,6 +15,11 @@ import (
+ )
+ 
+ const (
++	// WarrantExtraKey is the key used in a user's "extra" to specify
++	// JSON-encoded user infos for attached extra permissions for that user
++	// evaluated by the authorizer.
++	WarrantExtraKey = "authorization.kcp.io/warrant"
++
+ 	// ScopeExtraKey is the key used in a user's "extra" to specify
+ 	// that the user is restricted to a given scope. Valid values for
+ 	// one extra value are:
+@@ -27,29 +34,47 @@ const (
+ 	clusterPrefix = "cluster:"
+ )
+ 
++// Warrant is serialized into the user's "extra" field authorization.kcp.io/warrant
++// to hold user information for extra permissions.
++type Warrant struct {
++	// User is the user you're testing for.
++	// If you specify "User" but not "Groups", then is it interpreted as "What if User were not a member of any groups
++	// +optional
++	User string `json:"user,omitempty"`
++	// Groups is the groups you're testing for.
++	// +optional
++	// +listType=atomic
++	Groups []string `json:"groups,omitempty"`
++	// Extra corresponds to the user.Info.GetExtra() method from the authenticator.  Since that is input to the authorizer
++	// it needs a reflection here.
++	// +optional
++	Extra map[string][]string `json:"extra,omitempty"`
++	// UID information about the requesting user.
++	// +optional
++	UID string `json:"uid,omitempty"`
++}
++
+ type appliesToUserFunc func(user user.Info, subject rbacv1.Subject, namespace string) bool
+ type appliesToUserFuncCtx func(ctx context.Context, user user.Info, subject rbacv1.Subject, namespace string) bool
+ 
+-var appliesToUserWithScopes = withScopes(appliesToUser)
++var appliesToUserWithScopedAndWarrants = withScopesAndWarrants(appliesToUser)
+ 
+-// withScopes wraps the appliesToUser predicate to check for the base user and any warrants.
+-func withScopes(appliesToUser appliesToUserFunc) appliesToUserFuncCtx {
+-	var recursive appliesToUserFuncCtx
+-	recursive = func(ctx context.Context, u user.Info, bindingSubject rbacv1.Subject, namespace string) bool {
++// withScopesAndWarrants flattens the warrants, applies scopes and then applies the users to the subjects.
++func withScopesAndWarrants(appliesToUser appliesToUserFunc) appliesToUserFuncCtx {
++	return func(ctx context.Context, u user.Info, bindingSubject rbacv1.Subject, namespace string) bool {
+ 		var clusterName logicalcluster.Name
+ 		if cluster := genericapirequest.ClusterFrom(ctx); cluster != nil {
+ 			clusterName = cluster.Name
+ 		}
+-		if IsInScope(u, clusterName) && appliesToUser(u, bindingSubject, namespace) {
+-			return true
+-		}
+-		if appliesToUser(scopeDown(u), bindingSubject, namespace) {
+-			return true
++
++		for _, eu := range EffectiveUsers(clusterName, u) {
++			if appliesToUser(eu, bindingSubject, namespace) {
++				return true
++			}
+ 		}
+ 
+ 		return false
+ 	}
+-	return recursive
+ }
+ 
+ var (
+@@ -57,14 +82,75 @@ var (
+ 	unauthenticated = &user.DefaultInfo{Name: user.Anonymous, Groups: []string{user.AllUnauthenticated}}
+ )
+ 
+-func scopeDown(u user.Info) user.Info {
+-	for _, g := range u.GetGroups() {
+-		if g == user.AllAuthenticated {
+-			return authenticated
++// EffectiveUsers flattens the warrants and scopes each user to the given cluster.
++func EffectiveUsers(clusterName logicalcluster.Name, u user.Info) []user.Info {
++	ret := make([]user.Info, 0, 2)
++
++	var wantAuthenticated bool
++	var wantUnauthenticated bool
++
++	var recursive func(u user.Info)
++	recursive = func(u user.Info) {
++		if IsInScope(u, clusterName) {
++			ret = append(ret, u)
++		} else {
++			found := false
++			for _, g := range u.GetGroups() {
++				if g == user.AllAuthenticated {
++					found = true
++					break
++				}
++			}
++			wantAuthenticated = wantAuthenticated || found
++			wantUnauthenticated = wantUnauthenticated || !found
++		}
++
++		if IsServiceAccount(u) {
++			if clusters := u.GetExtra()[authserviceaccount.ClusterNameKey]; len(clusters) == 1 {
++				nsNameSuffix := strings.TrimPrefix(u.GetName(), "system:serviceaccount:")
++				rewritten := &user.DefaultInfo{
++					Name:  fmt.Sprintf("system:kcp:serviceaccount:%s:%s", clusters[0], nsNameSuffix),
++					Extra: u.GetExtra(),
++				}
++				for _, g := range u.GetGroups() {
++					if g == user.AllAuthenticated {
++						rewritten.Groups = []string{user.AllAuthenticated}
++						break
++					}
++				}
++				ret = append(ret, rewritten)
++			}
++		}
++
++		for _, v := range u.GetExtra()[WarrantExtraKey] {
++			var w Warrant
++			if err := json.Unmarshal([]byte(v), &w); err != nil {
++				continue
++			}
++
++			wu := &user.DefaultInfo{
++				Name:   w.User,
++				UID:    w.UID,
++				Groups: w.Groups,
++				Extra:  w.Extra,
++			}
++			if IsServiceAccount(wu) && len(w.Extra[authserviceaccount.ClusterNameKey]) == 0 {
++				// warrants must be scoped to a cluster
++				continue
++			}
++			recursive(wu)
+ 		}
+ 	}
++	recursive(u)
+ 
+-	return unauthenticated
++	if wantAuthenticated {
++		ret = append(ret, authenticated)
++	}
++	if wantUnauthenticated {
++		ret = append(ret, unauthenticated)
++	}
++
++	return ret
+ }
+ 
+ // IsServiceAccount returns true if the user is a service account.
+@@ -75,13 +161,17 @@ func IsServiceAccount(attr user.Info) bool {
+ // IsForeign returns true if the service account is not from the given cluster.
+ func IsForeign(attr user.Info, cluster logicalcluster.Name) bool {
+ 	clusters := attr.GetExtra()[authserviceaccount.ClusterNameKey]
+-	if clusters == nil {
++	switch {
++	case len(clusters) == 0:
+ 		// an unqualified service account is considered local: think of some
+ 		// local SubjectAccessReview specifying a service account without the
+ 		// cluster scope.
+ 		return false
++	case len(clusters) != 1:
++		return true
++	default:
++		return !sets.New(clusters...).Has(string(cluster))
+ 	}
+-	return !sets.New(clusters...).Has(string(cluster))
+ }
+ 
+ // IsInScope checks if the user is valid for the given cluster.
+@@ -106,3 +196,83 @@ func IsInScope(attr user.Info, cluster logicalcluster.Name) bool {
+ 
+ 	return true
+ }
++
++// EffectiveGroups returns the effective groups of the user in the given context
++// taking scopes and warrants into account.
++func EffectiveGroups(ctx context.Context, u user.Info) sets.Set[string] {
++	var clusterName logicalcluster.Name
++	if cluster := genericapirequest.ClusterFrom(ctx); cluster != nil {
++		clusterName = cluster.Name
++	}
++
++	eus := EffectiveUsers(clusterName, u)
++	groups := sets.New[string]()
++	for _, eu := range eus {
++		groups.Insert(eu.GetGroups()...)
++	}
++
++	return groups
++}
++
++// PrefixUser returns a new user with the name and groups prefixed with the
++// given prefix, and all warrants recursively prefixed.
++//
++// If the user is a service account, the prefix is added to the global service
++// account name.
++//
++// Invalid warrants are skipped.
++func PrefixUser(u user.Info, prefix string) user.Info {
++	pu := &user.DefaultInfo{
++		Name: prefix + u.GetName(),
++		UID:  u.GetUID(),
++	}
++	if IsServiceAccount(u) {
++		if clusters := u.GetExtra()[authserviceaccount.ClusterNameKey]; len(clusters) != 1 {
++			// this should not happen. But if it does, we are defensive.
++			for _, g := range u.GetGroups() {
++				if g == user.AllAuthenticated {
++					return &user.DefaultInfo{Name: prefix + user.Anonymous, Groups: []string{prefix + user.AllAuthenticated}}
++				}
++			}
++			return &user.DefaultInfo{Name: prefix + user.Anonymous, Groups: []string{prefix + user.AllUnauthenticated}}
++		} else {
++			pu.Name = fmt.Sprintf("%ssystem:kcp:serviceaccount:%s:%s", prefix, clusters[0], strings.TrimPrefix(u.GetName(), "system:serviceaccount:"))
++		}
++	}
++
++	for _, g := range u.GetGroups() {
++		pu.Groups = append(pu.Groups, prefix+g)
++	}
++
++	for k, v := range u.GetExtra() {
++		if k == WarrantExtraKey {
++			continue
++		}
++		if pu.Extra == nil {
++			pu.Extra = map[string][]string{}
++		}
++		pu.Extra[k] = v
++	}
++
++	for _, w := range u.GetExtra()[WarrantExtraKey] {
++		var warrant Warrant
++		if err := json.Unmarshal([]byte(w), &warrant); err != nil {
++			continue // skip invalid warrant
++		}
++
++		wpu := PrefixUser(&user.DefaultInfo{Name: warrant.User, UID: warrant.UID, Groups: warrant.Groups, Extra: warrant.Extra}, prefix)
++		warrant = Warrant{User: wpu.GetName(), UID: wpu.GetUID(), Groups: wpu.GetGroups(), Extra: wpu.GetExtra()}
++
++		bs, err := json.Marshal(warrant)
++		if err != nil {
++			continue // skip invalid warrant
++		}
++
++		if pu.Extra == nil {
++			pu.Extra = map[string][]string{}
++		}
++		pu.Extra[WarrantExtraKey] = append(pu.Extra[WarrantExtraKey], string(bs))
++	}
++
++	return pu
++}
+diff --git a/pkg/registry/rbac/validation/kcp_test.go b/pkg/registry/rbac/validation/kcp_test.go
+--- a/pkg/registry/rbac/validation/kcp_test.go
++++ b/pkg/registry/rbac/validation/kcp_test.go
+@@ -4,8 +4,11 @@ import (
+ 	"context"
+ 	"testing"
+ 
++	"github.com/google/go-cmp/cmp"
+ 	"github.com/kcp-dev/logicalcluster/v3"
+ 	rbacv1 "k8s.io/api/rbac/v1"
++	"k8s.io/apimachinery/pkg/util/sets"
++	authserviceaccount "k8s.io/apiserver/pkg/authentication/serviceaccount"
+ 	"k8s.io/apiserver/pkg/authentication/user"
+ 	"k8s.io/apiserver/pkg/endpoints/request"
+ )
+@@ -141,13 +144,14 @@ func TestIsInScope(t *testing.T) {
+ 	}
+ }
+ 
+-func TestAppliesToUserWithScopes(t *testing.T) {
++func TestAppliesToUserWithWarrantsAndScopes(t *testing.T) {
+ 	tests := []struct {
+ 		name string
+ 		user user.Info
+ 		sub  rbacv1.Subject
+ 		want bool
+ 	}{
++		// base cases
+ 		{
+ 			name: "simple matching user",
+ 			user: &user.DefaultInfo{Name: "user-a"},
+@@ -160,12 +164,66 @@ func TestAppliesToUserWithScopes(t *testing.T) {
+ 			sub:  rbacv1.Subject{Kind: "User", Name: "user-b"},
+ 			want: false,
+ 		},
++
++		// warrants
+ 		{
+-			name: "foreign service account",
+-			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"other"}}},
++			name: "simple matching user with warrants",
++			user: &user.DefaultInfo{Name: "user-a", Extra: map[string][]string{WarrantExtraKey: {`{"user":"user-b"}`}}},
++			sub:  rbacv1.Subject{Kind: "User", Name: "user-a"},
++			want: true,
++		},
++		{
++			name: "simple non-matching user with matching warrants",
++			user: &user.DefaultInfo{Name: "user-b", Extra: map[string][]string{WarrantExtraKey: {`{"user":"user-a"}`}}},
++			sub:  rbacv1.Subject{Kind: "User", Name: "user-a"},
++			want: true,
++		},
++		{
++			name: "simple non-matching user with non-matching warrants",
++			user: &user.DefaultInfo{Name: "user-b", Extra: map[string][]string{WarrantExtraKey: {`{"user":"user-b"}`}}},
++			sub:  rbacv1.Subject{Kind: "User", Name: "user-a"},
++			want: false,
++		},
++		{
++			name: "simple non-matching user with multiple warrants",
++			user: &user.DefaultInfo{Name: "user-b", Extra: map[string][]string{WarrantExtraKey: {`{"user":"user-b"}`, `{"user":"user-a"}`, `{"user":"user-c"}`}}},
++			sub:  rbacv1.Subject{Kind: "User", Name: "user-a"},
++			want: true,
++		},
++		{
++			name: "simple non-matching user with nested warrants",
++			user: &user.DefaultInfo{Name: "user-b", Extra: map[string][]string{WarrantExtraKey: {`{"user":"user-b","extra":{"authorization.kcp.io/warrant":["{\"user\":\"user-a\"}"]}}`}}},
++			sub:  rbacv1.Subject{Kind: "User", Name: "user-a"},
++			want: true,
++		},
++
++		// non-cluster-aware service accounts
++		{
++			name: "non-cluster-aware service account",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa"},
++			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
++			want: true,
++		},
++		{
++			name: "non-cluster-aware service account with this scope",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:this"}}},
++			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
++			want: true,
++		},
++		{
++			name: "non-cluster-aware service account with other scope",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:other"}}},
++			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
++			want: false,
++		},
++		{
++			name: "non-cluster-aware service account as warrant",
++			user: &user.DefaultInfo{Name: "user-b", Extra: map[string][]string{WarrantExtraKey: {`{"user":"system:serviceaccount:ns:sa"}`}}},
+ 			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
+ 			want: false,
+ 		},
++
++		// service accounts with cluster
+ 		{
+ 			name: "local service account",
+ 			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"this"}}},
+@@ -173,13 +231,59 @@ func TestAppliesToUserWithScopes(t *testing.T) {
+ 			want: true,
+ 		},
+ 		{
+-			name: "non-cluster-aware service account",
+-			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa"},
++			name: "foreign service account",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"other"}}},
++			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
++			want: false,
++		},
++		{
++			name: "foreign service account with local warrant",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"other"}, WarrantExtraKey: {`{"user":"system:serviceaccount:ns:sa","extra":{"authentication.kubernetes.io/cluster-name":["this"]}}`}}},
++			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
++			want: true,
++		},
++		{
++			name: "foreign service account with foreign warrant",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"other"}, WarrantExtraKey: {`{"user":"system:serviceaccount:ns:sa","extra":{"authentication.kubernetes.io/cluster-name":["other"]}}`}}},
++			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
++			want: false,
++		},
++		{
++			name: "local service account with multiple clusters",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"this", "this"}}},
+ 			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
++			want: false,
++		},
++		{
++			name: "out-of-scope local service account",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"this"}, "authentication.kcp.io/scopes": {"cluster:other"}}},
++			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
++			want: false,
++		},
++
++		// global service accounts
++		{
++			name: "local service account as global kcp service account",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"this"}}},
++			sub:  rbacv1.Subject{Kind: "User", Name: "system:kcp:serviceaccount:this:ns:sa"},
+ 			want: true,
+ 		},
+ 		{
+-			name: "in-scope scoped user",
++			name: "foreign service account as global kcp service account",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"other"}}},
++			sub:  rbacv1.Subject{Kind: "User", Name: "system:kcp:serviceaccount:this:ns:sa"},
++			want: false,
++		},
++		{
++			name: "non-cluster-aware service account as global kcp service account",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa"},
++			sub:  rbacv1.Subject{Kind: "User", Name: "system:kcp:serviceaccount:this:ns:sa"},
++			want: false,
++		},
++
++		// scopes
++		{
++			name: "in-scope user",
+ 			user: &user.DefaultInfo{Name: "user-a", Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:this"}}},
+ 			sub:  rbacv1.Subject{Kind: "User", Name: "user-a"},
+ 			want: true,
+@@ -191,41 +295,194 @@ func TestAppliesToUserWithScopes(t *testing.T) {
+ 			want: false,
+ 		},
+ 		{
+-			name: "out-of-scope anonymous user",
++			name: "out-of-scope user with warrant",
++			user: &user.DefaultInfo{Name: "user-a", Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:other"}, WarrantExtraKey: {`{"user":"user-a"}`}}},
++			sub:  rbacv1.Subject{Kind: "User", Name: "user-a"},
++			want: true,
++		},
++		{
++			name: "out-of-scope warrant",
++			user: &user.DefaultInfo{Name: "user-b", Extra: map[string][]string{WarrantExtraKey: {`{"user":"user-a","extra":{"authentication.kcp.io/scopes":["cluster:other"]}}`}}},
++			sub:  rbacv1.Subject{Kind: "User", Name: "user-a"},
++			want: false,
++		},
++		{
++			name: "in-scope warrant",
++			user: &user.DefaultInfo{Name: "user-b", Extra: map[string][]string{WarrantExtraKey: {`{"user":"user-a","extra":{"authentication.kcp.io/scopes":["cluster:this"]}}`}}},
++			sub:  rbacv1.Subject{Kind: "User", Name: "user-a"},
++			want: true,
++		},
++		{
++			name: "in-scope scoped user matches itself",
++			user: &user.DefaultInfo{Name: "user-a", Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:this"}}},
++			sub:  rbacv1.Subject{Kind: "User", Name: "user-a"},
++			want: true,
++		},
++		{
++			name: "out-of-scope user does not match itself",
++			user: &user.DefaultInfo{Name: "user-a", Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:other"}}},
++			sub:  rbacv1.Subject{Kind: "User", Name: "user-a"},
++			want: false,
++		},
++
++		// authenticated and unauthenticated
++		{
++			name: "out-of-scope unauthenticated user does not match system:authenticated",
+ 			user: &user.DefaultInfo{Name: "user-a", Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:other"}}},
+ 			sub:  rbacv1.Subject{Kind: "Group", Name: "system:authenticated"},
+ 			want: false,
+ 		},
+ 		{
+-			name: "out-of-scope anonymous user",
++			name: "out-of-scope unauthenticated user matches system:unauthenticated",
+ 			user: &user.DefaultInfo{Name: "user-a", Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:other"}}},
+ 			sub:  rbacv1.Subject{Kind: "Group", Name: "system:unauthenticated"},
+ 			want: true,
+ 		},
+ 		{
+-			name: "out-of-scope authenticated user",
++			name: "out-of-scope authenticated user matches system:authenticated",
+ 			user: &user.DefaultInfo{Name: "user-a", Groups: []string{user.AllAuthenticated}, Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:other"}}},
+ 			sub:  rbacv1.Subject{Kind: "Group", Name: "system:authenticated"},
+ 			want: true,
+ 		},
+ 		{
+-			name: "in-scope service account",
+-			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:this"}}},
+-			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
+-			want: true,
++			name: "foreign service-account does not match itself",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"other"}}},
++			sub:  rbacv1.Subject{Kind: "ServiceAccount", Name: "system:serviceaccount:ns:sa"},
++			want: false,
+ 		},
+ 		{
+-			name: "out-of-scope service account",
+-			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:other"}}},
+-			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
++			name: "foreign unauthenticated service-account does not match system:authenticated",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"other"}}},
++			sub:  rbacv1.Subject{Kind: "Group", Name: "system:authenticated"},
+ 			want: false,
+ 		},
++		{
++			name: "foreign unauthenticated service-account matches system:unauthenticated",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"other"}}},
++			sub:  rbacv1.Subject{Kind: "Group", Name: "system:unauthenticated"},
++			want: true,
++		},
++		{
++			name: "foreign authenticated service-account matches system:authenticated",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Groups: []string{user.AllAuthenticated}, Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"other"}}},
++			sub:  rbacv1.Subject{Kind: "Group", Name: "system:authenticated"},
++			want: true,
++		},
+ 	}
+ 	for _, tt := range tests {
+ 		t.Run(tt.name, func(t *testing.T) {
+ 			ctx := request.WithCluster(context.Background(), request.Cluster{Name: "this"})
+-			if got := appliesToUserWithScopes(ctx, tt.user, tt.sub, "ns"); got != tt.want {
+-				t.Errorf("appliesToUserWithScopes(%#v, %#v) = %v, want %v", tt.user, tt.sub, got, tt.want)
++			if got := appliesToUserWithScopedAndWarrants(ctx, tt.user, tt.sub, "ns"); got != tt.want {
++				t.Errorf("withWarrants(withScopes(base)) = %v, want %v", got, tt.want)
++			}
++		})
++	}
++}
++
++func TestEffectiveGroups(t *testing.T) {
++	tests := map[string]struct {
++		u    user.Info
++		want sets.Set[string]
++	}{
++		"empty user": {
++			u:    &user.DefaultInfo{},
++			want: sets.New[string](),
++		},
++		"authenticated user": {
++			u:    &user.DefaultInfo{Name: user.Anonymous, Groups: []string{user.AllAuthenticated}},
++			want: sets.New(user.AllAuthenticated),
++		},
++		"multiple groups": {
++			u:    &user.DefaultInfo{Name: user.Anonymous, Groups: []string{"a", "b"}},
++			want: sets.New("a", "b"),
++		},
++		"out of scope user": {
++			u: &user.DefaultInfo{Name: user.Anonymous, Groups: []string{"a", "b"}, Extra: map[string][]string{
++				ScopeExtraKey: {"cluster:other"},
++			}},
++			want: sets.New("system:unauthenticated"),
++		},
++		"out of scope authenticated user": {
++			u: &user.DefaultInfo{Name: user.Anonymous, Groups: []string{user.AllAuthenticated, "a", "b"}, Extra: map[string][]string{
++				ScopeExtraKey: {"cluster:other"},
++			}},
++			want: sets.New(user.AllAuthenticated),
++		},
++		"user with warrant": {
++			u: &user.DefaultInfo{Name: user.Anonymous, Groups: []string{"a", "b"}, Extra: map[string][]string{
++				WarrantExtraKey: {`{"user":"warrant","groups":["c","d"]}`},
++			}},
++			want: sets.New("a", "b", "c", "d"),
++		},
++		"user with warrant out of scope": {
++			u: &user.DefaultInfo{Name: user.Anonymous, Groups: []string{"a", "b"}, Extra: map[string][]string{
++				WarrantExtraKey: {`{"user":"warrant","groups":["c","d"],"extra":{"authentication.kcp.io/scopes":["cluster:other"]}}`},
++			}},
++			want: sets.New("a", "b", "system:unauthenticated"),
++		},
++		"nested warrants": {
++			u: &user.DefaultInfo{Name: user.Anonymous, Groups: []string{"a", "b"}, Extra: map[string][]string{
++				WarrantExtraKey: {`{"user":"warrant","groups":["c","d"],"extra":{"authorization.kcp.io/warrant":["{\"user\":\"warrant2\",\"groups\":[\"e\",\"f\"]}"]}}`},
++			}},
++			want: sets.New("a", "b", "c", "d", "e", "f"),
++		},
++	}
++	for name, tt := range tests {
++		t.Run(name, func(t *testing.T) {
++			ctx := request.WithCluster(context.Background(), request.Cluster{Name: "root:ws"})
++			got := EffectiveGroups(ctx, tt.u)
++			if diff := cmp.Diff(sets.List(tt.want), sets.List(got)); diff != "" {
++				t.Errorf("effectiveGroups() +got -want\n%s", diff)
++			}
++		})
++	}
++}
++
++func TestPrefixUser(t *testing.T) {
++	tests := map[string]struct {
++		u      user.Info
++		prefix string
++		want   user.Info
++	}{
++		"user with groups": {
++			u:      &user.DefaultInfo{Name: "user", Groups: []string{"a", "b"}},
++			prefix: "prefix:",
++			want:   &user.DefaultInfo{Name: "prefix:user", Groups: []string{"prefix:a", "prefix:b"}},
++		},
++		"user with warrant": {
++			u: &user.DefaultInfo{Name: "user", Extra: map[string][]string{
++				WarrantExtraKey: {`{"user":"warrant","groups":["c","d"]}`},
++			}},
++			prefix: "prefix:",
++			want: &user.DefaultInfo{Name: "prefix:user", Extra: map[string][]string{
++				WarrantExtraKey: {`{"user":"prefix:warrant","groups":["prefix:c","prefix:d"]}`},
++			}},
++		},
++		"service account without cluster": {
++			u:      &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Groups: []string{"system:serviceaccounts"}},
++			prefix: "prefix:",
++			want:   &user.DefaultInfo{Name: "prefix:system:anonymous", Groups: []string{"prefix:system:unauthenticated"}},
++		},
++		"service account without cluster but authenticated": {
++			u:      &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Groups: []string{"system:serviceaccounts", user.AllAuthenticated}},
++			prefix: "prefix:",
++			want:   &user.DefaultInfo{Name: "prefix:system:anonymous", Groups: []string{"prefix:system:authenticated"}},
++		},
++		"service account with cluster": {
++			u: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Groups: []string{"system:serviceaccounts"}, Extra: map[string][]string{
++				authserviceaccount.ClusterNameKey: {"cluster"},
++			}},
++			prefix: "prefix:",
++			want: &user.DefaultInfo{Name: "prefix:system:kcp:serviceaccount:cluster:ns:sa", Groups: []string{"prefix:system:serviceaccounts"}, Extra: map[string][]string{
++				authserviceaccount.ClusterNameKey: {"cluster"},
++			}},
++		},
++	}
++	for name, tt := range tests {
++		t.Run(name, func(t *testing.T) {
++			got := PrefixUser(tt.u, tt.prefix)
++			if diff := cmp.Diff(tt.want, got); diff != "" {
++				t.Errorf("prefixUser() mismatch (-want +got):\n%s", diff)
+ 			}
+ 		})
+ 	}
+diff --git a/pkg/registry/rbac/validation/rule.go b/pkg/registry/rbac/validation/rule.go
+--- a/pkg/registry/rbac/validation/rule.go
++++ b/pkg/registry/rbac/validation/rule.go
+@@ -262,7 +262,7 @@ func (r *DefaultRuleResolver) GetRoleReferenceRules(ctx context.Context, roleRef
+ // and if true, the index of the first subject that applies
+ func appliesTo(ctx context.Context, user user.Info, bindingSubjects []rbacv1.Subject, namespace string) (int, bool) {
+ 	for i, bindingSubject := range bindingSubjects {
+-		if appliesToUserWithScopes(ctx, user, bindingSubject, namespace) {
++		if appliesToUserWithScopedAndWarrants(ctx, user, bindingSubject, namespace) {
+ 			return i, true
+ 		}
+ 	}

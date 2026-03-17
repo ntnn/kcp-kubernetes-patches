@@ -1,0 +1,773 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
+Date: Wed, 27 Sep 2023 14:38:50 +0200
+Subject: [PATCH] UPSTREAM: <carry>: watch(er/cache): clusterize
+
+Co-authored-by: Marvin Beckers <marvin@kubermatic.com>
+Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
+Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../generic/registry/storage_factory.go       |  27 +++--
+ .../pkg/registry/generic/registry/store.go    |   9 +-
+ .../registry/generic/registry/store_test.go   |  21 ++--
+ .../pkg/registry/generic/storage_decorator.go |   6 +-
+ .../pkg/registry/generic/testing/tester.go    |   3 +-
+ .../apiserver/pkg/storage/cacher/cacher.go    |  72 +++++++++++-
+ .../pkg/storage/cacher/cacher_kcp.go          |  27 +++++
+ .../pkg/storage/cacher/lister_watcher.go      |  16 ++-
+ .../pkg/storage/cacher/watch_cache.go         |  10 +-
+ .../pkg/storage/cacher/watch_cache_kcp.go     |  38 +++++++
+ .../storage/cacher/watch_cache_kcp_test.go    | 107 ++++++++++++++++++
+ .../pkg/storage/cacher/watch_cache_test.go    |   2 +-
+ .../apiserver/pkg/storage/etcd3/watcher.go    |  27 ++++-
+ .../pkg/storage/storagebackend/config.go      |   5 +
+ .../pkg/storage/storagebackend/config_kcp.go  |  12 ++
+ 15 files changed, 337 insertions(+), 45 deletions(-)
+ create mode 100644 staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_kcp.go
+ create mode 100644 staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp.go
+ create mode 100644 staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_test.go
+ create mode 100644 staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config_kcp.go
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/storage_factory.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/storage_factory.go
+--- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/storage_factory.go
++++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/storage_factory.go
+@@ -17,6 +17,7 @@ limitations under the License.
+ package registry
+ 
+ import (
++	"context"
+ 	"fmt"
+ 	"sync"
+ 
+@@ -37,7 +38,7 @@ func StorageWithCacher() generic.StorageDecorator {
+ 	return func(
+ 		storageConfig *storagebackend.ConfigForResource,
+ 		resourcePrefix string,
+-		keyFunc func(obj runtime.Object) (string, error),
++		keyFunc func(ctx context.Context, obj runtime.Object) (string, error),
+ 		newFunc func() runtime.Object,
+ 		newListFunc func() runtime.Object,
+ 		getAttrsFunc storage.AttrFunc,
+@@ -54,18 +55,20 @@ func StorageWithCacher() generic.StorageDecorator {
+ 		}
+ 
+ 		cacherConfig := cacherstorage.Config{
+-			Storage:             s,
+-			Versioner:           storage.APIObjectVersioner{},
+-			GroupResource:       storageConfig.GroupResource,
++			Storage:        s,
++			Versioner:      storage.APIObjectVersioner{},
++			GroupResource:  storageConfig.GroupResource,
+ 			EventsHistoryWindow: storageConfig.EventsHistoryWindow,
+-			ResourcePrefix:      resourcePrefix,
+-			KeyFunc:             keyFunc,
+-			NewFunc:             newFunc,
+-			NewListFunc:         newListFunc,
+-			GetAttrsFunc:        getAttrsFunc,
+-			IndexerFuncs:        triggerFuncs,
+-			Indexers:            indexers,
+-			Codec:               storageConfig.Codec,
++			ResourcePrefix: resourcePrefix,
++			KeyFunc:        keyFunc,
++			NewFunc:        newFunc,
++			NewListFunc:    newListFunc,
++			GetAttrsFunc:   getAttrsFunc,
++			IndexerFuncs:   triggerFuncs,
++			Indexers:       indexers,
++			Codec:          storageConfig.Codec,
++
++			KcpExtraStorageMetadata: storageConfig.KcpExtraStorageMetadata,
+ 		}
+ 		cacher, err := cacherstorage.NewCacherFromConfig(cacherConfig)
+ 		if err != nil {
+diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
+--- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
++++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
+@@ -1630,17 +1630,17 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
+ 
+ 	// We adapt the store's keyFunc so that we can use it with the StorageDecorator
+ 	// without making any assumptions about where objects are stored in etcd
+-	keyFunc := func(obj runtime.Object) (string, error) {
++	keyFunc := func(ctx context.Context, obj runtime.Object) (string, error) {
+ 		accessor, err := meta.Accessor(obj)
+ 		if err != nil {
+ 			return "", err
+ 		}
+ 
+ 		if isNamespaced {
+-			return e.KeyFunc(genericapirequest.WithNamespace(genericapirequest.NewContext(), accessor.GetNamespace()), accessor.GetName())
++			return e.KeyFunc(genericapirequest.WithNamespace(ctx, accessor.GetNamespace()), accessor.GetName())
+ 		}
+ 
+-		return e.KeyFunc(genericapirequest.NewContext(), accessor.GetName())
++		return e.KeyFunc(ctx, accessor.GetName())
+ 	}
+ 
+ 	if e.DeleteCollectionWorkers == 0 {
+@@ -1704,8 +1704,7 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
+ 
+ // startObservingCount starts monitoring given prefix and periodically updating metrics. It returns a function to stop collection.
+ func (e *Store) startObservingCount(period time.Duration, objectCountTracker flowcontrolrequest.StorageObjectCountTracker) func() {
+-	ctx := genericapirequest.NewContext()
+-	prefix := e.KeyRootFunc(ctx)
++	prefix := e.KeyRootFunc(genericapirequest.WithCluster(genericapirequest.NewContext(), genericapirequest.Cluster{Wildcard: true}))
+ 	resourceName := e.DefaultQualifiedResource.String()
+ 	klog.V(2).InfoS("Monitoring resource count at path", "resource", resourceName, "path", "<storage-prefix>/"+prefix)
+ 	stopCh := make(chan struct{})
+diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store_test.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store_test.go
+--- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store_test.go
+@@ -2445,16 +2445,19 @@ func newTestGenericStoreRegistry(t *testing.T, scheme *runtime.Scheme, hasCacheE
+ 	}
+ 	if hasCacheEnabled {
+ 		config := cacherstorage.Config{
+-			Storage:             s,
+-			Versioner:           storage.APIObjectVersioner{},
+-			GroupResource:       schema.GroupResource{Resource: "pods"},
++			Storage:        s,
++			Versioner:      storage.APIObjectVersioner{},
++			GroupResource:  schema.GroupResource{Resource: "pods"},
+ 			EventsHistoryWindow: cacherstorage.DefaultEventFreshDuration,
+-			ResourcePrefix:      podPrefix,
+-			KeyFunc:             func(obj runtime.Object) (string, error) { return storage.NoNamespaceKeyFunc(podPrefix, obj) },
+-			GetAttrsFunc:        getPodAttrs,
+-			NewFunc:             newFunc,
+-			NewListFunc:         newListFunc,
+-			Codec:               sc.Codec,
++			ResourcePrefix: podPrefix,
++			GetAttrsFunc:   getPodAttrs,
++			NewFunc:        newFunc,
++			NewListFunc:    newListFunc,
++			Codec:          sc.Codec,
++
++			KeyFunc: func(ctx context.Context, obj runtime.Object) (string, error) {
++				return storage.NoNamespaceKeyFunc(podPrefix, obj)
++			},
+ 		}
+ 		cacher, err := cacherstorage.NewCacherFromConfig(config)
+ 		if err != nil {
+diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/storage_decorator.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/storage_decorator.go
+--- a/staging/src/k8s.io/apiserver/pkg/registry/generic/storage_decorator.go
++++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/storage_decorator.go
+@@ -17,6 +17,8 @@ limitations under the License.
+ package generic
+ 
+ import (
++	"context"
++
+ 	"k8s.io/apimachinery/pkg/runtime"
+ 	"k8s.io/apiserver/pkg/storage"
+ 	"k8s.io/apiserver/pkg/storage/storagebackend"
+@@ -29,7 +31,7 @@ import (
+ type StorageDecorator func(
+ 	config *storagebackend.ConfigForResource,
+ 	resourcePrefix string,
+-	keyFunc func(obj runtime.Object) (string, error),
++	keyFunc func(ctx context.Context, obj runtime.Object) (string, error),
+ 	newFunc func() runtime.Object,
+ 	newListFunc func() runtime.Object,
+ 	getAttrsFunc storage.AttrFunc,
+@@ -41,7 +43,7 @@ type StorageDecorator func(
+ func UndecoratedStorage(
+ 	config *storagebackend.ConfigForResource,
+ 	resourcePrefix string,
+-	keyFunc func(obj runtime.Object) (string, error),
++	keyFunc func(ctx context.Context, obj runtime.Object) (string, error),
+ 	newFunc func() runtime.Object,
+ 	newListFunc func() runtime.Object,
+ 	getAttrsFunc storage.AttrFunc,
+diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/testing/tester.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/testing/tester.go
+--- a/staging/src/k8s.io/apiserver/pkg/registry/generic/testing/tester.go
++++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/testing/tester.go
+@@ -154,11 +154,11 @@ func (t *Tester) TestWatch(valid runtime.Object, labelsPass, labelsFail []labels
+ // Helper functions
+ 
+ func (t *Tester) getObject(ctx context.Context, obj runtime.Object) (runtime.Object, error) {
++	ctx = genericapirequest.WithCluster(ctx, genericapirequest.Cluster{Name: t.tester.TestCluster()})
+ 	accessor, err := meta.Accessor(obj)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-
+ 	result, err := t.storage.Get(ctx, accessor.GetName(), &metav1.GetOptions{})
+ 	if err != nil {
+ 		return nil, err
+@@ -167,6 +167,7 @@ func (t *Tester) getObject(ctx context.Context, obj runtime.Object) (runtime.Obj
+ }
+ 
+ func (t *Tester) createObject(ctx context.Context, obj runtime.Object) error {
++	ctx = genericapirequest.WithCluster(ctx, genericapirequest.Cluster{Name: t.tester.TestCluster()})
+ 	accessor, err := meta.Accessor(obj)
+ 	if err != nil {
+ 		return err
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
+@@ -21,6 +21,7 @@ import (
+ 	"fmt"
+ 	"net/http"
+ 	"reflect"
++	"strconv"
+ 	"strings"
+ 	"sync"
+ 	"time"
+@@ -41,13 +42,16 @@ import (
+ 	"k8s.io/apimachinery/pkg/watch"
+ 	"k8s.io/apiserver/pkg/audit"
+ 	"k8s.io/apiserver/pkg/endpoints/request"
++	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+ 	"k8s.io/apiserver/pkg/features"
++	kcpapi "k8s.io/apiserver/pkg/kcp"
+ 	"k8s.io/apiserver/pkg/storage"
+ 	"k8s.io/apiserver/pkg/storage/cacher/delegator"
+ 	"k8s.io/apiserver/pkg/storage/cacher/metrics"
+ 	"k8s.io/apiserver/pkg/storage/cacher/progress"
+ 	"k8s.io/apiserver/pkg/storage/cacher/store"
+ 	etcdfeature "k8s.io/apiserver/pkg/storage/feature"
++	"k8s.io/apiserver/pkg/storage/storagebackend"
+ 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+ 	"k8s.io/client-go/tools/cache"
+ 	"k8s.io/component-base/tracing"
+@@ -98,7 +102,7 @@ type Config struct {
+ 	ResourcePrefix string
+ 
+ 	// KeyFunc is used to get a key in the underlying storage for a given object.
+-	KeyFunc func(runtime.Object) (string, error)
++	KeyFunc func(context.Context, runtime.Object) (string, error)
+ 
+ 	// GetAttrsFunc is used to get object labels, fields
+ 	GetAttrsFunc func(runtime.Object) (label labels.Set, field fields.Set, err error)
+@@ -121,6 +125,9 @@ type Config struct {
+ 	Codec runtime.Codec
+ 
+ 	Clock clock.WithTicker
++
++	// KcpExtraStorageMetadata holds metadata used by the watchCache's reflector to instruct the storage layer how to assign/extract the cluster name
++	KcpExtraStorageMetadata *storagebackend.KcpStorageMetadata
+ }
+ 
+ type watchersMap map[int]*cacheWatcher
+@@ -434,11 +441,17 @@ func NewCacherFromConfig(config Config) (*Cacher, error) {
+ 		return nil, fmt.Errorf("config.EventsHistoryWindow (%v) must not be below %v", eventFreshDuration, DefaultEventFreshDuration)
+ 	}
+ 
++	// empty storage metadata usually indicate build-in resources
++	// for those we require only a WildCard cluster to be present in the ctx
++	if config.KcpExtraStorageMetadata == nil {
++		config.KcpExtraStorageMetadata = &storagebackend.KcpStorageMetadata{Cluster: genericapirequest.Cluster{Wildcard: true}}
++	}
++
+ 	progressRequester := progress.NewConditionalProgressRequester(config.Storage.RequestWatchProgress, config.Clock, contextMetadata)
+ 	watchCache := newWatchCache(
+ 		config.KeyFunc, cacher.processEvent, config.GetAttrsFunc, config.Versioner, config.Indexers,
+ 		config.Clock, eventFreshDuration, config.GroupResource, progressRequester, config.Storage.GetCurrentResourceVersion)
+-	listerWatcher := NewListerWatcher(config.Storage, resourcePrefix, config.NewListFunc, contextMetadata)
++	listerWatcher := NewListerWatcher(config.Storage, resourcePrefix, config.NewListFunc, contextMetadata, config.KcpExtraStorageMetadata)
+ 	reflectorName := "storage/cacher.go:" + resourcePrefix
+ 
+ 	reflector := cache.NewNamedReflector(reflectorName, listerWatcher, obj, watchCache, 0)
+@@ -587,7 +600,7 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
+ 	}
+ 
+ 	// Determine a function that computes the bookmarkAfterResourceVersion
+-	bookmarkAfterResourceVersionFn, err := c.getBookmarkAfterResourceVersionLockedFunc(requestedWatchRV, requiredResourceVersion, opts)
++	bookmarkAfterResourceVersionFn, err := c.getBookmarkAfterResourceVersionLockedFunc(ctx, requestedWatchRV, requiredResourceVersion, opts)
+ 	if err != nil {
+ 		return newErrWatcher(err), nil
+ 	}
+@@ -1256,11 +1269,55 @@ func (c *Cacher) LastSyncResourceVersion() (uint64, error) {
+ 	return c.versioner.ParseResourceVersion(resourceVersion)
+ }
+ 
++// getCurrentResourceVersionFromStorage gets the current resource version from the underlying storage engine.
++// this method issues an empty list request and reads only the ResourceVersion from the object metadata
++func (c *Cacher) getCurrentResourceVersionFromStorage(ctx context.Context) (uint64, error) {
++	if c.newListFunc == nil {
++		return 0, fmt.Errorf("newListFunction wasn't provided for %v", c.objectType)
++	}
++	emptyList := c.newListFunc()
++	pred := storage.SelectionPredicate{
++		Label: labels.Everything(),
++		Field: fields.Everything(),
++		Limit: 1, // just in case we actually hit something
++	}
++
++	err := c.storage.GetList(ctx, c.resourcePrefix, storage.ListOptions{Predicate: pred}, emptyList)
++	if err != nil {
++		return 0, err
++	}
++	emptyListAccessor, err := meta.ListAccessor(emptyList)
++	if err != nil {
++		return 0, err
++	}
++	if emptyListAccessor == nil {
++		return 0, fmt.Errorf("unable to extract a list accessor from %T", emptyList)
++	}
++
++	currentResourceVersion, err := strconv.Atoi(emptyListAccessor.GetResourceVersion())
++	if err != nil {
++		return 0, err
++	}
++
++	if currentResourceVersion == 0 {
++		return 0, fmt.Errorf("the current resource version must be greater than 0")
++	}
++	return uint64(currentResourceVersion), nil
++}
++
++// cacherListerWatcher opaques storage.Interface to expose cache.ListerWatcher.
++type cacherListerWatcher struct {
++	storage                 storage.Interface
++	resourcePrefix          string
++	newListFunc             func() runtime.Object
++	kcpExtraStorageMetadata *storagebackend.KcpStorageMetadata
++}
++
+ // getBookmarkAfterResourceVersionLockedFunc returns a function that
+ // spits a ResourceVersion after which the bookmark event will be delivered.
+ //
+ // The returned function must be called under the watchCache lock.
+-func (c *Cacher) getBookmarkAfterResourceVersionLockedFunc(parsedResourceVersion, requiredResourceVersion uint64, opts storage.ListOptions) (func() uint64, error) {
++func (c *Cacher) getBookmarkAfterResourceVersionLockedFunc(ctx context.Context, parsedResourceVersion, requiredResourceVersion uint64, opts storage.ListOptions) (func() uint64, error) {
+ 	if !isListWatchRequest(opts) {
+ 		return func() uint64 { return 0 }, nil
+ 	}
+@@ -1366,6 +1423,13 @@ func (c *Cacher) Ready() bool {
+ 	return err == nil
+ }
+ 
++func createKCPClusterAwareContext(ctx context.Context, meta *storagebackend.KcpStorageMetadata) context.Context {
++	if meta.IsCRD {
++		ctx = kcpapi.WithCustomResourceIndicator(ctx)
++	}
++	return genericapirequest.WithCluster(ctx, meta.Cluster)
++}
++
+ // errWatcher implements watch.Interface to return a single error
+ type errWatcher struct {
+ 	result chan watch.Event
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_kcp.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_kcp.go
+new file mode 100644
+--- /dev/null
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_kcp.go
+@@ -0,0 +1,27 @@
++/*
++Copyright 2023 The KCP Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package cacher
++
++func (lw *listerWatcher) kcpAwareResourcePrefix() string {
++	if lw.kcpExtraStorageMetadata.Cluster.Wildcard {
++		return lw.resourcePrefix
++	}
++
++	// This is a request for normal (non-bound) CRs outside of system:system-crds. Make sure we only list in the
++	// specific logical cluster.
++	return lw.resourcePrefix + "/" + lw.kcpExtraStorageMetadata.Cluster.Name.String()
++}
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go
+@@ -29,6 +29,7 @@ import (
+ 	"k8s.io/apimachinery/pkg/watch"
+ 	"k8s.io/apiserver/pkg/features"
+ 	"k8s.io/apiserver/pkg/storage"
++	"k8s.io/apiserver/pkg/storage/storagebackend"
+ 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+ 	"k8s.io/client-go/tools/cache"
+ 	"k8s.io/client-go/util/consistencydetector"
+@@ -44,10 +45,12 @@ type listerWatcher struct {
+ 
+ 	unsupportedWatchListSemantics    bool
+ 	watchListConsistencyCheckEnabled bool
++
++	kcpExtraStorageMetadata *storagebackend.KcpStorageMetadata
+ }
+ 
+ // NewListerWatcher returns a storage.Interface backed ListerWatcher.
+-func NewListerWatcher(storage storage.Interface, resourcePrefix string, newListFunc func() runtime.Object, contextMetadata metadata.MD) cache.ListerWatcher {
++func NewListerWatcher(storage storage.Interface, resourcePrefix string, newListFunc func() runtime.Object, contextMetadata metadata.MD, kcpStorageMetadata *storagebackend.KcpStorageMetadata) cache.ListerWatcher {
+ 	return &listerWatcher{
+ 		storage:                          storage,
+ 		resourcePrefix:                   resourcePrefix,
+@@ -55,6 +58,7 @@ func NewListerWatcher(storage storage.Interface, resourcePrefix string, newListF
+ 		contextMetadata:                  contextMetadata,
+ 		unsupportedWatchListSemantics:    watchlist.DoesClientNotSupportWatchListSemantics(storage),
+ 		watchListConsistencyCheckEnabled: consistencydetector.IsDataConsistencyDetectionForWatchListEnabled(),
++		kcpExtraStorageMetadata:          kcpStorageMetadata,
+ 	}
+ }
+ 
+@@ -98,7 +102,10 @@ func (lw *listerWatcher) List(options metav1.ListOptions) (runtime.Object, error
+ 	if lw.contextMetadata != nil {
+ 		ctx = metadata.NewOutgoingContext(ctx, lw.contextMetadata)
+ 	}
+-	if err := lw.storage.GetList(ctx, lw.resourcePrefix, storageOpts, list); err != nil {
++	if lw.kcpExtraStorageMetadata != nil {
++		ctx = createKCPClusterAwareContext(lw.kcpExtraStorageMetadata)
++	}
++	if err := lw.storage.GetList(ctx, lw.kcpAwareResourcePrefix(), storageOpts, list); err != nil {
+ 		return nil, err
+ 	}
+ 	return list, nil
+@@ -131,7 +138,10 @@ func (lw *listerWatcher) Watch(options metav1.ListOptions) (watch.Interface, err
+ 		return nil, fmt.Errorf("sendInitialEvents is forbidden for watch unless the WatchList feature gate is enabled")
+ 	}
+ 
+-	return lw.storage.Watch(ctx, lw.resourcePrefix, opts)
++	if lw.kcpExtraStorageMetadata != nil {
++		ctx = createKCPClusterAwareContext(lw.kcpExtraStorageMetadata)
++	}
++	return lw.storage.Watch(ctx, lw.kcpAwareResourcePrefix(), opts)
+ }
+ 
+ func (lw *listerWatcher) IsWatchListSemanticsUnSupported() bool {
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
+@@ -103,7 +103,7 @@ type watchCache struct {
+ 	lowerBoundCapacity int
+ 
+ 	// keyFunc is used to get a key in the underlying storage for a given object.
+-	keyFunc func(runtime.Object) (string, error)
++	keyFunc func(context.Context, runtime.Object) (string, error)
+ 
+ 	// getAttrsFunc is used to get labels and fields of an object.
+ 	getAttrsFunc func(runtime.Object) (labels.Set, fields.Set, error)
+@@ -164,7 +164,7 @@ type watchCache struct {
+ }
+ 
+ func newWatchCache(
+-	keyFunc func(runtime.Object) (string, error),
++	keyFunc func(context.Context, runtime.Object) (string, error),
+ 	eventHandler func(*watchCacheEvent),
+ 	getAttrsFunc func(runtime.Object) (labels.Set, fields.Set, error),
+ 	versioner storage.Versioner,
+@@ -283,7 +283,7 @@ func (w *watchCache) objectToVersionedRuntimeObject(obj interface{}) (runtime.Ob
+ func (w *watchCache) processEvent(event watch.Event, resourceVersion uint64, updateFunc func(*store.Element) error) error {
+ 	metrics.EventsReceivedCounter.WithLabelValues(w.groupResource.Group, w.groupResource.Resource).Inc()
+ 
+-	key, err := w.keyFunc(event.Object)
++	key, err := w.keyFunc(createClusterAwareContext(event.Object), event.Object)
+ 	if err != nil {
+ 		return fmt.Errorf("couldn't compute key: %v", err)
+ 	}
+@@ -719,7 +719,7 @@ func (w *watchCache) Get(obj interface{}) (interface{}, bool, error) {
+ 	if !ok {
+ 		return nil, false, fmt.Errorf("obj does not implement runtime.Object interface: %v", obj)
+ 	}
+-	key, err := w.keyFunc(object)
++	key, err := w.keyFunc(createClusterAwareContext(object), object)
+ 	if err != nil {
+ 		return nil, false, fmt.Errorf("couldn't compute key: %v", err)
+ 	}
+@@ -745,7 +745,7 @@ func (w *watchCache) Replace(objs []interface{}, resourceVersion string) error {
+ 		if !ok {
+ 			return fmt.Errorf("didn't get runtime.Object for replace: %#v", obj)
+ 		}
+-		key, err := w.keyFunc(object)
++		key, err := w.keyFunc(createClusterAwareContext(object), object)
+ 		if err != nil {
+ 			return fmt.Errorf("couldn't compute key: %v", err)
+ 		}
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp.go
+new file mode 100644
+--- /dev/null
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp.go
+@@ -0,0 +1,38 @@
++package cacher
++
++import (
++	"context"
++
++	"github.com/kcp-dev/logicalcluster/v3"
++	"k8s.io/apimachinery/pkg/runtime"
++
++	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
++	"k8s.io/klog/v2"
++)
++
++// createClusterAwareContext extracts the clusterName from the given object and puts it into a context
++// the context is used by the key function to compute the key under which the object will be stored
++//
++// background:
++//
++// resources in the db are stored without the clusterName, since the reflector used by the cache uses the logicalcluster.Wildcard
++// the clusterName will be assigned to object by the storage layer upon retrieval.
++// we need take it into consideration and change the key to contain the clusterName
++// because this is how clients are going to be retrieving data from the cache.
++func createClusterAwareContext(object runtime.Object) context.Context {
++	var clusterName logicalcluster.Name
++
++	o, ok := object.(logicalcluster.Object)
++	if !ok {
++		klog.Warningf("unknown object, could not get a clusterName and a namespace from: %T", object)
++		return context.Background()
++	}
++
++	clusterName = logicalcluster.From(o)
++	if clusterName.Empty() {
++		klog.Warningf("unknown object, could not get a clusterName and a namespace from: %T", object)
++		return context.Background()
++	}
++
++	return genericapirequest.WithCluster(context.Background(), genericapirequest.Cluster{Name: clusterName})
++}
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_test.go
+new file mode 100644
+--- /dev/null
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_test.go
+@@ -0,0 +1,107 @@
++/*
++Copyright 2022 The KCP Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package cacher
++
++import (
++	"testing"
++
++	"github.com/kcp-dev/logicalcluster/v3"
++
++	v1 "k8s.io/api/core/v1"
++	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
++	"k8s.io/apimachinery/pkg/runtime"
++	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
++)
++
++func TestCreateClusterAwareContext(t *testing.T) {
++	scenarios := []struct {
++		name            string
++		existingObject  runtime.Object
++		expectedCluster genericapirequest.Cluster
++	}{
++		{
++			name:            "scoped, built-in type",
++			existingObject:  makePod("pod1", "root:org:abc", "default"),
++			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.New("root:org:abc")},
++		},
++		{
++			name: "cluster wide, built-in type",
++			existingObject: func() *v1.Pod {
++				p := makePod("pod1", "root:org:abc", "default")
++				p.Namespace = ""
++				return p
++			}(),
++			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.New("root:org:abc")},
++		},
++		{
++			name:            "scoped, identity, built-in type",
++			existingObject:  makePod("pod1", "root:org:abc", "default"),
++			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.New("root:org:abc")},
++		},
++
++		{
++			name:            "scoped, unstructured type",
++			existingObject:  makeUnstructured("root:org:abc", "default"),
++			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.New("root:org:abc")},
++		},
++		{
++			name:            "cluster wide, unstructured type",
++			existingObject:  makeUnstructured("root:org:abc", ""),
++			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.New("root:org:abc")},
++		},
++		{
++			name:            "scoped, identity, unstructured type",
++			existingObject:  makeUnstructured("root:org:abc", "default"),
++			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.New("root:org:abc")},
++		},
++	}
++
++	for _, scenario := range scenarios {
++		t.Run(scenario.name, func(t *testing.T) {
++			actualCtx := createClusterAwareContext(scenario.existingObject)
++			actualCluster, err := genericapirequest.ValidClusterFrom(actualCtx)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if *actualCluster != scenario.expectedCluster {
++				t.Errorf("expected %v, got %v", scenario.expectedCluster, actualCluster)
++			}
++		})
++	}
++}
++
++func makePod(name, clusterName, ns string) *v1.Pod {
++	return &v1.Pod{
++		ObjectMeta: metav1.ObjectMeta{
++			Namespace: ns,
++			Name:      name,
++			Annotations: map[string]string{
++				logicalcluster.AnnotationKey: clusterName,
++			},
++		},
++	}
++}
++
++func makeUnstructured(clusterName, ns string) *unstructured.Unstructured {
++	obj := &unstructured.Unstructured{}
++	obj.SetAnnotations(map[string]string{
++		logicalcluster.AnnotationKey: clusterName,
++	})
++	obj.SetNamespace(ns)
++	return obj
++}
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
+@@ -116,7 +116,7 @@ func (w *testWatchCache) getCacheIntervalForEvents(resourceVersion uint64, opts
+ 
+ // newTestWatchCache just adds a fake clock.
+ func newTestWatchCache(capacity int, eventFreshDuration time.Duration, indexers *cache.Indexers) *testWatchCache {
+-	keyFunc := func(obj runtime.Object) (string, error) {
++	keyFunc := func(_ context.Context, obj runtime.Object) (string, error) {
+ 		return storage.NamespaceKeyFunc("/prefix/", obj)
+ 	}
+ 	getAttrsFunc := func(obj runtime.Object) (labels.Set, fields.Set, error) {
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
+@@ -36,7 +36,9 @@ import (
+ 	"k8s.io/apimachinery/pkg/runtime/schema"
+ 	"k8s.io/apimachinery/pkg/util/wait"
+ 	"k8s.io/apimachinery/pkg/watch"
++	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+ 	"k8s.io/apiserver/pkg/features"
++	"k8s.io/apiserver/pkg/kcp"
+ 	"k8s.io/apiserver/pkg/storage"
+ 	"k8s.io/apiserver/pkg/storage/etcd3/metrics"
+ 	"k8s.io/apiserver/pkg/storage/value"
+@@ -94,6 +96,9 @@ type watchChan struct {
+ 	incomingEventChan        chan *event
+ 	resultChan               chan watch.Event
+ 	getResourceSizeEstimator func() *resourceSizeEstimator
++
++	cluster    *genericapirequest.Cluster
++	crdRequest bool
+ }
+ 
+ // Watch watches on a key and returns a watch.Interface that transfers relevant notifications.
+@@ -103,7 +108,12 @@ type watchChan struct {
+ // If opts.Recursive is false, it watches on given key.
+ // If opts.Recursive is true, it watches any children and directories under the key, excluding the root key itself.
+ // pred must be non-nil. Only if opts.Predicate matches the change, it will be returned.
+-func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage.ListOptions) (watch.Interface, error) {
++func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage.ListOptions, transformer value.Transformer) (watch.Interface, error) {
++	cluster, err := genericapirequest.ValidClusterFrom(ctx)
++	if err != nil {
++		return nil, err
++	}
++
+ 	if opts.Recursive && !strings.HasSuffix(key, "/") {
+ 		return nil, fmt.Errorf(`recursive key needs to end with "/"`)
+ 	}
+@@ -114,7 +124,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	wc := w.createWatchChan(ctx, key, startWatchRV, opts.Recursive, opts.ProgressNotify, opts.Predicate)
++	wc := w.createWatchChan(ctx, key, startWatchRV, cluster, opts.Recursive, opts.ProgressNotify, opts.Predicate, transformer)
+ 	go wc.run(isInitialEventsEndBookmarkRequired(opts), areInitialEventsRequired(rev, opts))
+ 
+ 	// For etcd watch we don't have an easy way to answer whether the watch
+@@ -127,7 +137,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
+ 	return wc, nil
+ }
+ 
+-func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, recursive, progressNotify bool, pred storage.SelectionPredicate) *watchChan {
++func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, cluster *genericapirequest.Cluster, recursive, progressNotify bool, pred storage.SelectionPredicate, transformer value.Transformer) *watchChan {
+ 	wc := &watchChan{
+ 		watcher:                  w,
+ 		key:                      key,
+@@ -138,6 +148,9 @@ func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, re
+ 		incomingEventChan:        make(chan *event, incomingBufSize),
+ 		resultChan:               make(chan watch.Event, outgoingBufSize),
+ 		getResourceSizeEstimator: w.getResourceSizeEstimator,
++
++		cluster:    cluster,
++		crdRequest: kcp.CustomResourceIndicatorFrom(ctx),
+ 	}
+ 	if pred.Empty() {
+ 		// The filter doesn't filter out any object.
+@@ -713,6 +726,10 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+ 		if err != nil {
+ 			return nil, nil, err
+ 		}
++
++		// kcp: apply clusterName to the decoded object, as the name is not persisted in storage.
++		clusterName := adjustClusterNameIfWildcard(wc.shard, wc.cluster, wc.crdRequest, wc.key, e.key)
++		annotateDecodedObjectWith(curObj, clusterName, shardName)
+ 	}
+ 	// We need to decode prevValue, only if this is deletion event or
+ 	// the underlying filter doesn't accept all objects (otherwise we
+@@ -730,6 +747,10 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+ 		if err != nil {
+ 			return nil, nil, wc.watcher.transformIfCorruptObjectError(e, err)
+ 		}
++
++		// kcp: apply clusterName to the decoded object, as the name is not persisted in storage.
++		clusterName := adjustClusterNameIfWildcard(wc.shard, wc.cluster, wc.crdRequest, wc.key, e.key)
++		annotateDecodedObjectWith(oldObj, clusterName, shardName)
+ 	}
+ 	return curObj, oldObj, nil
+ }
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
+--- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
+@@ -102,6 +102,11 @@ type ConfigForResource struct {
+ 
+ 	// GroupResource is the relevant one
+ 	GroupResource schema.GroupResource
++
++	// The following fields hold config required/specific to KCP
++	//
++	// KcpExtraStorageMetadata holds metadata used by the watchCache's reflector to instruct the storage layer how to assign/extract the cluster name
++	KcpExtraStorageMetadata *KcpStorageMetadata
+ }
+ 
+ // ForResource specializes to the given resource
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config_kcp.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config_kcp.go
+new file mode 100644
+--- /dev/null
++++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config_kcp.go
+@@ -0,0 +1,12 @@
++package storagebackend
++
++import genericrequest "k8s.io/apiserver/pkg/endpoints/request"
++
++// KcpStorageMetadata holds KCP specific metadata that is used by the reflector to instruct the storage layer how to assign/extract the cluster name
++type KcpStorageMetadata struct {
++	// IsCRD indicate that the storage deals with CustomResourceDefinition
++	IsCRD bool
++
++	// Cluster holds a KCP cluster
++	Cluster genericrequest.Cluster
++}

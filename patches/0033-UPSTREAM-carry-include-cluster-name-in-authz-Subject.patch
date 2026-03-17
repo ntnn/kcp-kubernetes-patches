@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Christoph Mewes <christoph@kubermatic.com>
+Date: Wed, 13 Nov 2024 14:50:45 +0100
+Subject: [PATCH] UPSTREAM: <carry>: include cluster name in authz
+ SubjectAccessReview in webhooks
+
+On-behalf-of: @SAP christoph.mewes@sap.com
+---
+ .../plugin/pkg/authorizer/webhook/webhook.go          | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go b/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go
+--- a/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go
++++ b/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go
+@@ -41,6 +41,7 @@ import (
+ 	"k8s.io/apiserver/pkg/authentication/user"
+ 	"k8s.io/apiserver/pkg/authorization/authorizer"
+ 	authorizationcel "k8s.io/apiserver/pkg/authorization/cel"
++	"k8s.io/apiserver/pkg/endpoints/request"
+ 	genericfeatures "k8s.io/apiserver/pkg/features"
+ 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+ 	"k8s.io/apiserver/pkg/util/webhook"
+@@ -54,6 +55,9 @@ import (
+ const (
+ 	// The maximum length of requester-controlled attributes to allow caching.
+ 	maxControlledAttrCacheSize = 10000
++
++	// ClusterNameKey is the logical cluster name a webhook message originates from.
++	ClusterNameKey = "authorization.kubernetes.io/cluster-name"
+ )
+ 
+ // DefaultRetryBackoff returns the default backoff parameters for webhook retry.
+@@ -196,6 +200,13 @@ func (w *WebhookAuthorizer) Authorize(ctx context.Context, attr authorizer.Attri
+ 		}
+ 	}
+ 
++	if clusterName, err := request.ClusterNameFrom(ctx); err == nil {
++		if r.Spec.Extra == nil {
++			r.Spec.Extra = map[string]authorizationv1.ExtraValue{}
++		}
++		r.Spec.Extra[ClusterNameKey] = authorizationv1.ExtraValue{clusterName.Path().String()}
++	}
++
+ 	if attr.IsResourceRequest() {
+ 		r.Spec.ResourceAttributes = resourceAttributesFrom(attr)
+ 	} else {

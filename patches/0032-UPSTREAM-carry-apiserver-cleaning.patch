@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mangirdas Judeikis <mangirdas@judeikis.lt>
+Date: Tue, 3 Sep 2024 19:55:54 +0300
+Subject: [PATCH] UPSTREAM: <carry>: apiserver cleaning
+
+---
+ pkg/kubeapiserver/options/authentication.go                 | 2 +-
+ .../pkg/apiserver/rest_options_getter_kcp.go                | 5 +++--
+ staging/src/k8s.io/apiserver/pkg/server/options/feature.go  | 6 +++---
+ 3 files changed, 7 insertions(+), 6 deletions(-)
+
+diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
+--- a/pkg/kubeapiserver/options/authentication.go
++++ b/pkg/kubeapiserver/options/authentication.go
+@@ -717,7 +717,7 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
+ 			versionedInformer.Core().V1().ServiceAccounts().Lister(),
+ 		)
+ 	}
+-	authenticatorConfig.SecretsWriter = extclient.CoreV1()
++	authenticatorConfig.SecretsWriter = extclient.CoreV1().Secrets()
+ 
+ 	if authenticatorConfig.BootstrapToken {
+ 		authenticatorConfig.BootstrapTokenAuthenticator = bootstrap.NewTokenAuthenticator(
+diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_options_getter_kcp.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_options_getter_kcp.go
+--- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_options_getter_kcp.go
++++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_options_getter_kcp.go
+@@ -8,6 +8,7 @@ import (
+ 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+ 
+ 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
++	"k8s.io/apimachinery/pkg/runtime"
+ 	"k8s.io/apimachinery/pkg/runtime/schema"
+ 	"k8s.io/apiserver/pkg/registry/generic"
+ 	"k8s.io/apiserver/pkg/storage/storagebackend"
+@@ -18,8 +19,8 @@ type apiBindingAwareCRDRESTOptionsGetter struct {
+ 	crd      *apiextensionsv1.CustomResourceDefinition
+ }
+ 
+-func (t apiBindingAwareCRDRESTOptionsGetter) GetRESTOptions(resource schema.GroupResource) (generic.RESTOptions, error) {
+-	ret, err := t.delegate.GetRESTOptions(resource)
++func (t apiBindingAwareCRDRESTOptionsGetter) GetRESTOptions(resource schema.GroupResource, obj runtime.Object) (generic.RESTOptions, error) {
++	ret, err := t.delegate.GetRESTOptions(resource, obj)
+ 	if err != nil {
+ 		return ret, err
+ 	}
+diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/feature.go b/staging/src/k8s.io/apiserver/pkg/server/options/feature.go
+--- a/staging/src/k8s.io/apiserver/pkg/server/options/feature.go
++++ b/staging/src/k8s.io/apiserver/pkg/server/options/feature.go
+@@ -21,11 +21,11 @@ import (
+ 
+ 	"github.com/spf13/pflag"
+ 
+-	kcpinformers "github.com/kcp-dev/client-go/informers"
+-	kcpclient "github.com/kcp-dev/client-go/kubernetes"
+ 	"k8s.io/apimachinery/pkg/runtime/serializer"
+ 	"k8s.io/apiserver/pkg/server"
+ 	utilflowcontrol "k8s.io/apiserver/pkg/util/flowcontrol"
++	"k8s.io/client-go/informers"
++	"k8s.io/client-go/kubernetes"
+ )
+ 
+ type FeatureOptions struct {
+@@ -61,7 +61,7 @@ func (o *FeatureOptions) AddFlags(fs *pflag.FlagSet) {
+ 		"If true, replace the max-in-flight handler with an enhanced one that queues and dispatches with priority and fairness")
+ }
+ 
+-func (o *FeatureOptions) ApplyTo(c *server.Config, clientset kcpclient.ClusterInterface, informers kcpinformers.SharedInformerFactory) error {
++func (o *FeatureOptions) ApplyTo(c *server.Config, clientset kubernetes.Interface, informers informers.SharedInformerFactory) error {
+ 	if o == nil {
+ 		return nil
+ 	}

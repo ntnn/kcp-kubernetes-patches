@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Thu, 30 Apr 2026 00:17:26 +0200
+Subject: [PATCH] UPSTREAM: <carry>: Export GarbageCollector.ResyncMonitors
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ pkg/controller/garbagecollector/kcp.go | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/pkg/controller/garbagecollector/kcp.go b/pkg/controller/garbagecollector/kcp.go
+--- a/pkg/controller/garbagecollector/kcp.go
++++ b/pkg/controller/garbagecollector/kcp.go
+@@ -23,8 +23,10 @@ import (
+ 	kcpkubernetesclientset "github.com/kcp-dev/client-go/kubernetes"
+ 	"github.com/kcp-dev/logicalcluster/v3"
+ 	v1 "k8s.io/api/core/v1"
++	"k8s.io/apimachinery/pkg/runtime/schema"
+ 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
+ 	"k8s.io/client-go/tools/record"
++	"k8s.io/klog/v2"
+ )
+ 
+ type clusterContextKey struct{}
+@@ -89,3 +91,9 @@ func (sink *clusterEventSinkImpl) Update(event *v1.Event) (*v1.Event, error) {
+ func (sink *clusterEventSinkImpl) Patch(event *v1.Event, data []byte) (*v1.Event, error) {
+ 	return sink.getClient(event).PatchWithEventNamespace(event, data)
+ }
++
++// ResyncMonitors allows kcp to directly sync monitors in the graph
++// builder, skipping GarbageCollector.Sync.
++func (gc *GarbageCollector) ResyncMonitors(logger klog.Logger, deletableResources map[schema.GroupVersionResource]struct{}) error {
++	return gc.resyncMonitors(logger, deletableResources)
++}

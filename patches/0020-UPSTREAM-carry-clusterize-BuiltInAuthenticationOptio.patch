@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
+Date: Wed, 27 Sep 2023 15:34:14 +0200
+Subject: [PATCH] UPSTREAM: <carry>: clusterize BuiltInAuthenticationOptions
+
+Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+---
+ pkg/kubeapiserver/options/authentication.go | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
+--- a/pkg/kubeapiserver/options/authentication.go
++++ b/pkg/kubeapiserver/options/authentication.go
+@@ -28,6 +28,8 @@ import (
+ 	"sync"
+ 	"time"
+ 
++	kcpinformers "github.com/kcp-dev/client-go/informers"
++	kcpkubernetesclientset "github.com/kcp-dev/client-go/kubernetes"
+ 	"github.com/spf13/pflag"
+ 
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+@@ -50,7 +52,6 @@ import (
+ 	"k8s.io/apiserver/pkg/util/filesystem"
+ 	"k8s.io/apiserver/plugin/pkg/authenticator/token/oidc"
+ 	"k8s.io/client-go/informers"
+-	"k8s.io/client-go/kubernetes"
+ 	certutil "k8s.io/client-go/util/cert"
+ 	"k8s.io/client-go/util/keyutil"
+ 	cliflag "k8s.io/component-base/cli/flag"
+@@ -674,8 +675,8 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
+ 	egressSelector *egressselector.EgressSelector,
+ 	openAPIConfig *openapicommon.Config,
+ 	openAPIV3Config *openapicommon.OpenAPIV3Config,
+-	extclient kubernetes.Interface,
+-	versionedInformer informers.SharedInformerFactory,
++	extclient kcpkubernetesclientset.ClusterInterface,
++	versionedInformer kcpinformers.SharedInformerFactory,
+ 	apiServerID string) error {
+ 	if o == nil {
+ 		return nil
+@@ -711,7 +712,7 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
+ 	if o.ServiceAccounts != nil && o.ServiceAccounts.OptionalTokenGetter != nil {
+ 		authenticatorConfig.ServiceAccountTokenGetter = o.ServiceAccounts.OptionalTokenGetter(versionedInformer)
+ 	} else {
+-		authenticatorConfig.ServiceAccountTokenGetter = serviceaccountcontroller.NewGetterFromClient(
++		authenticatorConfig.ServiceAccountTokenGetter = serviceaccountcontroller.NewClusterGetterFromClient(
+ 			extclient,
+ 			versionedInformer.Core().V1().Secrets().Lister(),
+ 			versionedInformer.Core().V1().ServiceAccounts().Lister(),
+@@ -721,7 +722,7 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
+ 
+ 	if authenticatorConfig.BootstrapToken {
+ 		authenticatorConfig.BootstrapTokenAuthenticator = bootstrap.NewTokenAuthenticator(
+-			versionedInformer.Core().V1().Secrets().Lister().Secrets(metav1.NamespaceSystem),
++			versionedInformer.Core().V1().Secrets().Lister().Secrets(metav1.NamespaceSystem), //TODO(kcp): This should be a cluster scoped lister?
+ 		)
+ 	}
+ 

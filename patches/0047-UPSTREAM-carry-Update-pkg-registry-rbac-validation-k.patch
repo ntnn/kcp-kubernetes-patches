@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <10514301+ntnn@users.noreply.github.com>
+Date: Mon, 15 Sep 2025 10:41:22 +0200
+Subject: [PATCH] UPSTREAM: <carry>: Update
+ pkg/registry/rbac/validation/kcp_test.go
+
+Co-authored-by: Copilot <175728472+Copilot@users.noreply.github.com>
+---
+ pkg/registry/rbac/validation/kcp_test.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/pkg/registry/rbac/validation/kcp_test.go b/pkg/registry/rbac/validation/kcp_test.go
+--- a/pkg/registry/rbac/validation/kcp_test.go
++++ b/pkg/registry/rbac/validation/kcp_test.go
+@@ -248,7 +248,7 @@ func TestAppliesToUserWithWarrantsAndScopes(t *testing.T) {
+ 			want: false,
+ 		},
+ 		{
+-			name: "non-cluster-aware service account as warrant", // TODO what is this supposed to test?
++			name: "non-cluster-aware service account as warrant",
+ 			user: &user.DefaultInfo{Name: "user-b", Extra: map[string][]string{WarrantExtraKey: {`{"user":"system:serviceaccount:ns:sa"}`}}},
+ 			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
+ 			want: false,

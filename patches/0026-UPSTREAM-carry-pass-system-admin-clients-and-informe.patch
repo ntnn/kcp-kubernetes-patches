@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Marvin Beckers <marvin@kubermatic.com>
+Date: Thu, 13 Jun 2024 14:23:15 +0200
+Subject: [PATCH] UPSTREAM: <carry>: pass system:admin clients and informers in
+ generic control plane
+
+Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ pkg/controlplane/apiserver/config.go | 8 ++++----
+ pkg/controlplane/apiserver/server.go | 5 +++++
+ 2 files changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/config.go
+--- a/pkg/controlplane/apiserver/config.go
++++ b/pkg/controlplane/apiserver/config.go
+@@ -51,7 +51,6 @@ import (
+ 	"k8s.io/apiserver/pkg/util/openapi"
+ 	utilpeerproxy "k8s.io/apiserver/pkg/util/peerproxy"
+ 	clientgoinformers "k8s.io/client-go/informers"
+-	clientgoclientset "k8s.io/client-go/kubernetes"
+ 	"k8s.io/client-go/util/keyutil"
+ 	basecompatibility "k8s.io/component-base/compatibility"
+ 	metricsfeatures "k8s.io/component-base/metrics/features"
+@@ -157,12 +156,13 @@ func BuildGenericConfig(
+ 	kubeClientConfig := genericConfig.LoopbackClientConfig
+ 	clusterClient, err := kcpclient.NewForConfig(kubeClientConfig)
+ 	if err != nil {
+-		lastErr = fmt.Errorf("failed to create real external clientset: %w", err)
++		lastErr = fmt.Errorf("failed to create cluster clientset: %v", err)
+ 		return
+ 	}
+ 	versionedInformers = kcpinformers.NewSharedInformerFactory(clusterClient, 10*time.Minute)
+ 
+-	if lastErr = s.Features.ApplyTo(genericConfig, clusterClient, versionedInformers); lastErr != nil {
++	// TODO(embik): this creates flowcontrol for system:admin, but that's probably wrong.
++	if lastErr = s.Features.ApplyTo(genericConfig, clusterClient.Cluster(LocalAdminCluster.Path()), clientgoinformers.NewSharedInformerFactory(clusterClient.Cluster(LocalAdminCluster.Path()), 10*time.Minute)); lastErr != nil {
+ 		return
+ 	}
+ 	if lastErr = s.APIEnablement.ApplyTo(genericConfig, resourceConfig, legacyscheme.Scheme); lastErr != nil {
+@@ -373,7 +373,7 @@ func CreateConfig(
+ 	if err != nil {
+ 		return nil, nil, fmt.Errorf("failed to create admission plugin initializer: %w", err)
+ 	}
+-	clientgoExternalClient, err := clientgoclientset.NewForConfig(genericConfig.LoopbackClientConfig)
++	clientgoExternalClient, err := kcpclient.NewForConfig(genericConfig.LoopbackClientConfig)
+ 	if err != nil {
+ 		return nil, nil, fmt.Errorf("failed to create real client-go external client: %w", err)
+ 	}
+diff --git a/pkg/controlplane/apiserver/server.go b/pkg/controlplane/apiserver/server.go
+--- a/pkg/controlplane/apiserver/server.go
++++ b/pkg/controlplane/apiserver/server.go
+@@ -195,6 +195,10 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+ 			c.Extra.PeerEndpointLeaseReconciler,
+ 			c.Extra.PeerEndpointReconcileInterval,
+ 			client.Cluster(LocalAdminCluster.Path()))
++		if err != nil {
++			return nil, fmt.Errorf("failed to create peer endpoint lease controller: %w", err)
++		}
++
+ 		s.GenericAPIServer.AddPostStartHookOrDie("peer-endpoint-reconciler-controller",
+ 			func(hookContext genericapiserver.PostStartHookContext) error {
+ 				peerEndpointCtrl.Start(hookContext.Done())
+@@ -230,6 +234,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+ 
+ 	s.GenericAPIServer.AddPostStartHookOrDie("start-cluster-authentication-info-controller", func(hookContext genericapiserver.PostStartHookContext) error {
+ 		controller := clusterauthenticationtrust.NewClusterAuthenticationTrustController(s.ClusterAuthenticationInfo, client.Cluster(LocalAdminCluster.Path()))
++
+ 		// prime values and start listeners
+ 		if s.ClusterAuthenticationInfo.ClientCA != nil {
+ 			s.ClusterAuthenticationInfo.ClientCA.AddListener(controller)

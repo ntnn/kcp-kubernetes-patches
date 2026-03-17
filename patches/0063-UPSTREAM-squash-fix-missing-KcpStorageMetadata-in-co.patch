@@ -1,0 +1,103 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Robert Vasek <rvasek01@gmail.com>
+Date: Sat, 4 Apr 2026 19:16:39 +0200
+Subject: [PATCH] UPSTREAM: <squash> fix missing KcpStorageMetadata in
+ consistencyChecker
+
+Can be squashed with 'UPSTREAM: <carry>: storage/etcd3: clusterize'
+
+On-behalf-of: SAP robert.vasek@sap.com
+Signed-off-by: Robert Vasek <robert.vasek@clyso.com>
+---
+ .../apiserver/pkg/storage/cacher/cacher.go    |  4 +++
+ .../apiserver/pkg/storage/cacher/delegator.go | 26 ++++++++++---------
+ 2 files changed, 18 insertions(+), 12 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
+@@ -348,6 +348,9 @@ type Cacher struct {
+ 	// expiredBookmarkWatchers is a list of watchers that were expired and need to be schedule for a next bookmark event
+ 	expiredBookmarkWatchers []*cacheWatcher
+ 	compactor               *compactor
++
++	// kcp
++	kcpExtraStorageMetadata *storagebackend.KcpStorageMetadata
+ }
+ 
+ // NewCacherFromConfig creates a new Cacher responsible for servicing WATCH and LIST requests from
+@@ -451,6 +454,7 @@ func NewCacherFromConfig(config Config) (*Cacher, error) {
+ 	watchCache := newWatchCache(
+ 		config.KeyFunc, cacher.processEvent, config.GetAttrsFunc, config.Versioner, config.Indexers,
+ 		config.Clock, eventFreshDuration, config.GroupResource, progressRequester, config.Storage.GetCurrentResourceVersion)
++	cacher.kcpExtraStorageMetadata = config.KcpExtraStorageMetadata
+ 	listerWatcher := NewListerWatcher(config.Storage, resourcePrefix, config.NewListFunc, contextMetadata, config.KcpExtraStorageMetadata)
+ 	reflectorName := "storage/cacher.go:" + resourcePrefix
+ 
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
+@@ -35,12 +35,12 @@ import (
+ 	"k8s.io/apimachinery/pkg/util/wait"
+ 	"k8s.io/apimachinery/pkg/watch"
+ 	"k8s.io/apiserver/pkg/audit"
+-	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+ 	"k8s.io/apiserver/pkg/features"
+ 	"k8s.io/apiserver/pkg/storage"
+ 	"k8s.io/apiserver/pkg/storage/cacher/delegator"
+ 	"k8s.io/apiserver/pkg/storage/cacher/metrics"
+ 	"k8s.io/apiserver/pkg/storage/cacher/store"
++	"k8s.io/apiserver/pkg/storage/storagebackend"
+ 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+ 	"k8s.io/component-base/tracing"
+ 	"k8s.io/klog/v2"
+@@ -67,7 +67,7 @@ func NewCacheDelegator(cacher *Cacher, storage storage.Interface) *CacheDelegato
+ 		stopCh:  make(chan struct{}),
+ 	}
+ 	if utilfeature.DefaultFeatureGate.Enabled(features.DetectCacheInconsistency) || panicOnCacheInconsistency {
+-		d.checker = newConsistencyChecker(cacher.resourcePrefix, cacher.groupResource, cacher.newListFunc, cacher, storage)
++		d.checker = newConsistencyChecker(cacher.resourcePrefix, cacher.groupResource, cacher.newListFunc, cacher, storage, cacher.kcpExtraStorageMetadata)
+ 		d.wg.Add(1)
+ 		go func() {
+ 			defer d.wg.Done()
+@@ -288,20 +288,22 @@ func (c *CacheDelegator) Stop() {
+ 	c.wg.Wait()
+ }
+ 
+-func newConsistencyChecker(resourcePrefix string, groupResource schema.GroupResource, newListFunc func() runtime.Object, cacher cacher, etcd getLister) *consistencyChecker {
++func newConsistencyChecker(resourcePrefix string, groupResource schema.GroupResource, newListFunc func() runtime.Object, cacher cacher, etcd getLister, kcpStorageMetadata *storagebackend.KcpStorageMetadata) *consistencyChecker {
+ 	return &consistencyChecker{
+-		groupResource:  groupResource,
+-		resourcePrefix: resourcePrefix,
+-		newListFunc:    newListFunc,
+-		cacher:         cacher,
+-		etcd:           etcd,
++		groupResource:      groupResource,
++		resourcePrefix:     resourcePrefix,
++		newListFunc:        newListFunc,
++		cacher:             cacher,
++		etcd:               etcd,
++		kcpStorageMetadata: kcpStorageMetadata,
+ 	}
+ }
+ 
+ type consistencyChecker struct {
+-	resourcePrefix string
+-	groupResource  schema.GroupResource
+-	newListFunc    func() runtime.Object
++	resourcePrefix     string
++	groupResource      schema.GroupResource
++	newListFunc        func() runtime.Object
++	kcpStorageMetadata *storagebackend.KcpStorageMetadata
+ 
+ 	cacher cacher
+ 	etcd   getLister
+@@ -330,7 +332,7 @@ func (c consistencyChecker) startChecking(stopCh <-chan struct{}) {
+ }
+ 
+ func (c *consistencyChecker) check(ctx context.Context) {
+-	ctx = genericapirequest.WithCluster(ctx, genericapirequest.Cluster{Wildcard: true})
++	ctx = createKCPClusterAwareContext(ctx, c.kcpStorageMetadata)
+ 	digests, err := c.calculateDigests(ctx)
+ 	if err != nil {
+ 		klog.ErrorS(err, "Cache consistency check error", "group", c.groupResource.Group, "resource", c.groupResource.Resource)

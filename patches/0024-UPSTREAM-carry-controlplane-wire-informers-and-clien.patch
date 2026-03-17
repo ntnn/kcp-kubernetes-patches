@@ -1,0 +1,482 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
+Date: Mon, 11 Sep 2023 21:37:51 +0200
+Subject: [PATCH] UPSTREAM: <carry>: controlplane: wire informers and clients
+
+Co-authored-by: Marvin Beckers <marvin@kubermatic.com>
+Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
+Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ cmd/kube-apiserver/app/config.go              |  5 +-
+ cmd/kube-apiserver/app/server.go              |  8 ++--
+ pkg/controlplane/apiserver/aggregator.go      |  3 +-
+ pkg/controlplane/apiserver/apis.go            |  3 +-
+ pkg/controlplane/apiserver/completion.go      |  3 +-
+ pkg/controlplane/apiserver/config.go          | 48 ++++++++++++++-----
+ pkg/controlplane/apiserver/server.go          | 24 +++++-----
+ pkg/controlplane/instance.go                  |  2 +-
+ pkg/kubeapiserver/options/authentication.go   |  3 +-
+ pkg/registry/rbac/rest/storage_rbac.go        |  6 ++-
+ .../src/k8s.io/apiserver/pkg/server/config.go |  5 +-
+ 11 files changed, 75 insertions(+), 35 deletions(-)
+
+diff --git a/cmd/kube-apiserver/app/config.go b/cmd/kube-apiserver/app/config.go
+--- a/cmd/kube-apiserver/app/config.go
++++ b/cmd/kube-apiserver/app/config.go
+@@ -20,6 +20,7 @@ import (
+ 	apiextensionsapiserver "k8s.io/apiextensions-apiserver/pkg/apiserver"
+ 	"k8s.io/apiextensions-apiserver/pkg/apiserver/conversion"
+ 	"k8s.io/apimachinery/pkg/runtime"
++	"k8s.io/apiserver/pkg/informerfactoryhack"
+ 	"k8s.io/apiserver/pkg/util/webhook"
+ 	aggregatorapiserver "k8s.io/kube-aggregator/pkg/apiserver"
+ 	aggregatorscheme "k8s.io/kube-aggregator/pkg/apiserver/scheme"
+@@ -98,13 +99,13 @@ func NewConfig(opts options.CompletedOptions) (*Config, error) {
+ 		return nil, err
+ 	}
+ 
+-	apiExtensions, err := controlplaneapiserver.CreateAPIExtensionsConfig(*kubeAPIs.ControlPlane.Generic, kubeAPIs.ControlPlane.VersionedInformers, pluginInitializer, opts.CompletedOptions, opts.MasterCount, conversionFactory)
++	apiExtensions, err := controlplaneapiserver.CreateAPIExtensionsConfig(*kubeAPIs.ControlPlane.Generic, informerfactoryhack.Wrap(versionedInformers), pluginInitializer, opts.CompletedOptions, opts.MasterCount, conversionFactory)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 	c.ApiExtensions = apiExtensions
+ 
+-	aggregator, err := controlplaneapiserver.CreateAggregatorConfig(*kubeAPIs.ControlPlane.Generic, opts.CompletedOptions, kubeAPIs.ControlPlane.VersionedInformers, serviceResolver, kubeAPIs.ControlPlane.ProxyTransport, kubeAPIs.ControlPlane.Extra.PeerProxy, pluginInitializer)
++	aggregator, err := controlplaneapiserver.CreateAggregatorConfig(*kubeAPIs.ControlPlane.Generic, opts.CompletedOptions, informerfactoryhack.Wrap(versionedInformers), serviceResolver, kubeAPIs.ControlPlane.ProxyTransport, kubeAPIs.ControlPlane.Extra.PeerProxy, pluginInitializer)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
+--- a/cmd/kube-apiserver/app/server.go
++++ b/cmd/kube-apiserver/app/server.go
+@@ -25,6 +25,7 @@ import (
+ 	"net/url"
+ 	"os"
+ 
++	kcpinformers "github.com/kcp-dev/client-go/informers"
+ 	"github.com/spf13/cobra"
+ 
+ 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+@@ -32,6 +33,7 @@ import (
+ 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+ 	"k8s.io/apiserver/pkg/admission"
+ 	genericapifilters "k8s.io/apiserver/pkg/endpoints/filters"
++	"k8s.io/apiserver/pkg/informerfactoryhack"
+ 	genericapiserver "k8s.io/apiserver/pkg/server"
+ 	"k8s.io/apiserver/pkg/server/egressselector"
+ 	"k8s.io/apiserver/pkg/server/flagz"
+@@ -187,7 +189,7 @@ func CreateServerChain(config CompletedConfig) (*aggregatorapiserver.APIAggregat
+ 	}
+ 
+ 	// aggregator comes last in the chain
+-	aggregatorServer, err := controlplaneapiserver.CreateAggregatorServer(config.Aggregator, kubeAPIServer.ControlPlane.GenericAPIServer, apiExtensionsServer.Informers.Apiextensions().V1().CustomResourceDefinitions(), crdAPIEnabled, apiVersionPriorities)
++	aggregatorServer, err := controlplaneapiserver.CreateAggregatorServer(config.Aggregator, kubeAPIServer.ControlPlane.GenericAPIServer, apiExtensionsServer.Informers.Apiextensions().V1().CustomResourceDefinitions().Cluster(controlplaneapiserver.LocalAdminCluster), crdAPIEnabled, apiVersionPriorities)
+ 	if err != nil {
+ 		// we don't need special handling for innerStopCh because the aggregator server doesn't create any go routines
+ 		return nil, err
+@@ -200,7 +202,7 @@ func CreateServerChain(config CompletedConfig) (*aggregatorapiserver.APIAggregat
+ func CreateKubeAPIServerConfig(
+ 	opts options.CompletedOptions,
+ 	genericConfig *genericapiserver.Config,
+-	versionedInformers clientgoinformers.SharedInformerFactory,
++	versionedInformers kcpinformers.SharedInformerFactory,
+ 	storageFactory *serverstorage.DefaultStorageFactory,
+ ) (
+ 	*controlplane.Config,
+@@ -218,7 +220,7 @@ func CreateKubeAPIServerConfig(
+ 		return nil, nil, nil, fmt.Errorf("failed to create admission plugin initializer: %w", err)
+ 	}
+ 
+-	serviceResolver, err := buildServiceResolver(opts.EnableAggregatorRouting, genericConfig.LoopbackClientConfig.Host, versionedInformers)
++	serviceResolver, err := buildServiceResolver(opts.EnableAggregatorRouting, genericConfig.LoopbackClientConfig.Host, informerfactoryhack.Wrap(versionedInformers))
+ 	if err != nil {
+ 		return nil, nil, nil, fmt.Errorf("error building service resolver: %w", err)
+ 	}
+diff --git a/pkg/controlplane/apiserver/aggregator.go b/pkg/controlplane/apiserver/aggregator.go
+--- a/pkg/controlplane/apiserver/aggregator.go
++++ b/pkg/controlplane/apiserver/aggregator.go
+@@ -29,6 +29,7 @@ import (
+ 	"k8s.io/apimachinery/pkg/runtime/schema"
+ 	"k8s.io/apimachinery/pkg/util/sets"
+ 	"k8s.io/apiserver/pkg/admission"
++	"k8s.io/apiserver/pkg/endpoints/request"
+ 	genericfeatures "k8s.io/apiserver/pkg/features"
+ 	genericapiserver "k8s.io/apiserver/pkg/server"
+ 	"k8s.io/apiserver/pkg/server/healthz"
+@@ -354,7 +355,7 @@ func DefaultGenericAPIServicePriorities() map[schema.GroupVersion]APIServicePrio
+ func apiServicesToRegister(delegateAPIServer genericapiserver.DelegationTarget, registration autoregister.AutoAPIServiceRegistration, apiVersionPriorities map[schema.GroupVersion]APIServicePriority) []*v1.APIService {
+ 	apiServices := []*v1.APIService{}
+ 
+-	for _, curr := range delegateAPIServer.ListedPaths() {
++	for _, curr := range delegateAPIServer.ListedPaths(&request.Cluster{}) {
+ 		if curr == "/api/v1" {
+ 			apiService := makeAPIService(schema.GroupVersion{Group: "", Version: "v1"}, apiVersionPriorities)
+ 			registration.AddAPIServiceToSyncOnStart(apiService)
+diff --git a/pkg/controlplane/apiserver/apis.go b/pkg/controlplane/apiserver/apis.go
+--- a/pkg/controlplane/apiserver/apis.go
++++ b/pkg/controlplane/apiserver/apis.go
+@@ -19,6 +19,7 @@ package apiserver
+ import (
+ 	"fmt"
+ 
++	"k8s.io/apiserver/pkg/informerfactoryhack"
+ 	"k8s.io/apiserver/pkg/registry/generic"
+ 	genericapiserver "k8s.io/apiserver/pkg/server"
+ 	serverstorage "k8s.io/apiserver/pkg/server/storage"
+@@ -55,7 +56,7 @@ func (c *CompletedConfig) NewCoreGenericConfig() *corerest.GenericConfig {
+ 		ServiceAccountMaxExpiration: c.Extra.ServiceAccountMaxExpiration,
+ 		MaxExtendedExpiration:       c.Extra.ServiceAccountExtendedMaxExpiration,
+ 		APIAudiences:                c.Generic.Authentication.APIAudiences,
+-		Informers:                   c.Extra.VersionedInformers,
++		Informers:                   informerfactoryhack.Wrap(c.Extra.VersionedInformers),
+ 	}
+ }
+ 
+diff --git a/pkg/controlplane/apiserver/completion.go b/pkg/controlplane/apiserver/completion.go
+--- a/pkg/controlplane/apiserver/completion.go
++++ b/pkg/controlplane/apiserver/completion.go
+@@ -18,6 +18,7 @@ package apiserver
+ 
+ import (
+ 	"k8s.io/apiserver/pkg/endpoints/discovery"
++	"k8s.io/apiserver/pkg/informerfactoryhack"
+ 	genericapiserver "k8s.io/apiserver/pkg/server"
+ )
+ 
+@@ -33,7 +34,7 @@ type CompletedConfig struct {
+ 
+ func (c *Config) Complete() CompletedConfig {
+ 	cfg := completedConfig{
+-		c.Generic.Complete(c.VersionedInformers),
++		c.Generic.Complete(informerfactoryhack.Wrap(c.VersionedInformers)),
+ 		&c.Extra,
+ 	}
+ 
+diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/config.go
+--- a/pkg/controlplane/apiserver/config.go
++++ b/pkg/controlplane/apiserver/config.go
+@@ -23,6 +23,10 @@ import (
+ 	"net/http"
+ 	"time"
+ 
++	"github.com/kcp-dev/client-go/dynamic"
++	kcpinformers "github.com/kcp-dev/client-go/informers"
++	kcpclient "github.com/kcp-dev/client-go/kubernetes"
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	noopoteltrace "go.opentelemetry.io/otel/trace/noop"
+ 
+ 	"k8s.io/apimachinery/pkg/api/meta"
+@@ -32,9 +36,12 @@ import (
+ 	"k8s.io/apimachinery/pkg/util/wait"
+ 	"k8s.io/apiserver/pkg/admission"
+ 	"k8s.io/apiserver/pkg/authorization/authorizer"
++	"k8s.io/apiserver/pkg/clientsethack"
++	"k8s.io/apiserver/pkg/dynamichack"
+ 	"k8s.io/apiserver/pkg/endpoints/discovery/aggregated"
+ 	openapinamer "k8s.io/apiserver/pkg/endpoints/openapi"
+ 	genericfeatures "k8s.io/apiserver/pkg/features"
++	"k8s.io/apiserver/pkg/informerfactoryhack"
+ 	peerreconcilers "k8s.io/apiserver/pkg/reconcilers"
+ 	genericapiserver "k8s.io/apiserver/pkg/server"
+ 	"k8s.io/apiserver/pkg/server/egressselector"
+@@ -44,7 +51,6 @@ import (
+ 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+ 	"k8s.io/apiserver/pkg/util/openapi"
+ 	utilpeerproxy "k8s.io/apiserver/pkg/util/peerproxy"
+-	"k8s.io/client-go/dynamic"
+ 	clientgoinformers "k8s.io/client-go/informers"
+ 	clientgoclientset "k8s.io/client-go/kubernetes"
+ 	"k8s.io/client-go/util/keyutil"
+@@ -62,6 +68,10 @@ import (
+ 	"k8s.io/kubernetes/pkg/serviceaccount"
+ )
+ 
++// LocalAdminCluster is the default logical cluster that kube-apiserver's
++// objects, e.g. the RBAC bootstrap policy land in.
++var LocalAdminCluster = logicalcluster.Name("system:admin")
++
+ // Config defines configuration for the master
+ type Config struct {
+ 	Generic *genericapiserver.Config
+@@ -102,7 +112,7 @@ type Extra struct {
+ 
+ 	SystemNamespaces []string
+ 
+-	VersionedInformers clientgoinformers.SharedInformerFactory
++	VersionedInformers kcpinformers.SharedInformerFactory
+ 
+ 	// Coordinated Leader Election timers
+ 	CoordinatedLeadershipLeaseDuration time.Duration
+@@ -120,7 +130,7 @@ func BuildGenericConfig(
+ 	getOpenAPIDefinitions func(ref openapicommon.ReferenceCallback) map[string]openapicommon.OpenAPIDefinition,
+ ) (
+ 	genericConfig *genericapiserver.Config,
+-	versionedInformers clientgoinformers.SharedInformerFactory,
++	versionedInformers kcpinformers.SharedInformerFactory,
+ 	storageFactory *serverstorage.DefaultStorageFactory,
+ 	lastErr error,
+ ) {
+@@ -211,8 +221,24 @@ func BuildGenericConfig(
+ 
+ 	ctx := wait.ContextForChannel(genericConfig.DrainedNotify())
+ 
++	// Use protobufs for self-communication.
++	// Since not every generic apiserver has to support protobufs, we
++	// cannot default to it in generic apiserver and need to explicitly
++	// set it in kube-apiserver.
++	genericConfig.LoopbackClientConfig.ContentConfig.ContentType = "application/vnd.kubernetes.protobuf"
++	// Disable compression for self-communication, since we are going to be
++	// on a fast local network
++	genericConfig.LoopbackClientConfig.DisableCompression = true
++
++	clusterClient, err := kcpclient.NewForConfig(kubeClientConfig)
++	if err != nil {
++		lastErr = fmt.Errorf("failed to create cluster clientset: %v", err)
++		return
++	}
++	versionedInformers = kcpinformers.NewSharedInformerFactory(clusterClient, 10*time.Minute)
++
+ 	// Authentication.ApplyTo requires already applied OpenAPIConfig and EgressSelector if present
+-	if lastErr = s.Authentication.ApplyTo(ctx, &genericConfig.Authentication, genericConfig.SecureServing, genericConfig.EgressSelector, genericConfig.OpenAPIConfig, genericConfig.OpenAPIV3Config, clientgoExternalClient, versionedInformers, genericConfig.APIServerID); lastErr != nil {
++	if lastErr = s.Authentication.ApplyTo(ctx, &genericConfig.Authentication, genericConfig.SecureServing, genericConfig.EgressSelector, genericConfig.OpenAPIConfig, genericConfig.OpenAPIV3Config, clusterClient, versionedInformers, genericConfig.APIServerID); lastErr != nil {
+ 		return
+ 	}
+ 
+@@ -222,7 +248,7 @@ func BuildGenericConfig(
+ 		s,
+ 		genericConfig.EgressSelector,
+ 		genericConfig.APIServerID,
+-		versionedInformers,
++		informerfactoryhack.Wrap(versionedInformers),
+ 	)
+ 	if err != nil {
+ 		lastErr = fmt.Errorf("invalid authorization config: %w", err)
+@@ -278,7 +304,7 @@ func BuildAuthorizer(ctx context.Context, s options.CompletedOptions, egressSele
+ func CreateConfig(
+ 	opts options.CompletedOptions,
+ 	genericConfig *genericapiserver.Config,
+-	versionedInformers clientgoinformers.SharedInformerFactory,
++	versionedInformers kcpinformers.SharedInformerFactory,
+ 	storageFactory *serverstorage.DefaultStorageFactory,
+ 	serviceResolver aggregatorapiserver.ServiceResolver,
+ 	additionalInitializers []admission.PluginInitializer,
+@@ -323,7 +349,7 @@ func CreateConfig(
+ 			return nil, nil, err
+ 		}
+ 		if opts.PeerCAFile != "" {
+-			leaseInformer := versionedInformers.Coordination().V1().Leases()
++			leaseInformer := informerfactoryhack.Wrap(versionedInformers).Coordination().V1().Leases()
+ 			config.PeerProxy, err = BuildPeerProxy(
+ 				leaseInformer,
+ 				genericConfig.LoopbackClientConfig,
+@@ -362,7 +388,7 @@ func CreateConfig(
+ 
+ 	// setup admission
+ 	genericAdmissionConfig := controlplaneadmission.Config{
+-		ExternalInformers:    versionedInformers,
++		ExternalInformers:    informerfactoryhack.Wrap(versionedInformers),
+ 		LoopbackClientConfig: genericConfig.LoopbackClientConfig,
+ 		APIResourceConfig:    storageFactory.APIResourceConfigSource,
+ 	}
+@@ -380,9 +406,9 @@ func CreateConfig(
+ 	}
+ 	err = opts.Admission.ApplyTo(
+ 		genericConfig,
+-		versionedInformers,
+-		clientgoExternalClient,
+-		dynamicExternalClient,
++		informerfactoryhack.Wrap(versionedInformers),
++		clientsethack.Wrap(clientgoExternalClient),
++		dynamichack.Wrap(dynamicExternalClient),
+ 		utilfeature.DefaultFeatureGate,
+ 		compatibility.DefaultComponentGlobalsRegistry.EffectiveVersionFor(basecompatibility.DefaultKubeComponent),
+ 		append(genericInitializers, additionalInitializers...)...,
+diff --git a/pkg/controlplane/apiserver/server.go b/pkg/controlplane/apiserver/server.go
+--- a/pkg/controlplane/apiserver/server.go
++++ b/pkg/controlplane/apiserver/server.go
+@@ -22,12 +22,15 @@ import (
+ 	"os"
+ 	"time"
+ 
++	"github.com/kcp-dev/client-go/kubernetes"
++
+ 	coordinationapiv1 "k8s.io/api/coordination/v1"
+ 	apiv1 "k8s.io/api/core/v1"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	"k8s.io/apimachinery/pkg/util/runtime"
+ 	"k8s.io/apimachinery/pkg/util/uuid"
+ 	apiserverfeatures "k8s.io/apiserver/pkg/features"
++	"k8s.io/apiserver/pkg/informerfactoryhack"
+ 	peerreconcilers "k8s.io/apiserver/pkg/reconcilers"
+ 	genericregistry "k8s.io/apiserver/pkg/registry/generic"
+ 	genericapiserver "k8s.io/apiserver/pkg/server"
+@@ -35,7 +38,6 @@ import (
+ 	serverstorage "k8s.io/apiserver/pkg/server/storage"
+ 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+ 	clientgoinformers "k8s.io/client-go/informers"
+-	"k8s.io/client-go/kubernetes"
+ 	"k8s.io/component-helpers/apimachinery/lease"
+ 	"k8s.io/klog/v2"
+ 	"k8s.io/utils/clock"
+@@ -133,7 +135,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+ 		APIResourceConfigSource:   c.APIResourceConfigSource,
+ 		RESTOptionsGetter:         c.Generic.RESTOptionsGetter,
+ 		ClusterAuthenticationInfo: c.ClusterAuthenticationInfo,
+-		VersionedInformers:        c.VersionedInformers,
++		VersionedInformers:        informerfactoryhack.Wrap(c.VersionedInformers),
+ 	}
+ 
+ 	client, err := kubernetes.NewForConfig(s.GenericAPIServer.LoopbackClientConfig)
+@@ -142,7 +144,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+ 	}
+ 	if len(c.SystemNamespaces) > 0 {
+ 		s.GenericAPIServer.AddPostStartHookOrDie("start-system-namespaces-controller", func(hookContext genericapiserver.PostStartHookContext) error {
+-			go systemnamespaces.NewController(c.SystemNamespaces, client, s.VersionedInformers.Core().V1().Namespaces()).Run(hookContext.Done())
++			go systemnamespaces.NewController(c.SystemNamespaces, client.Cluster(LocalAdminCluster.Path()), informerfactoryhack.Unwrap(s.VersionedInformers).Core().V1().Namespaces().Cluster(LocalAdminCluster)).Run(hookContext.Done())
+ 			return nil
+ 		})
+ 	}
+@@ -164,11 +166,11 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+ 				controller, err := leaderelection.NewController(
+ 					leaseInformer,
+ 					lcInformer,
+-					client.CoordinationV1(),
+-					client.CoordinationV1beta1(),
++					client.Cluster(LocalAdminCluster.Path()).CoordinationV1(),
++					client.Cluster(LocalAdminCluster.Path()).CoordinationV1beta1(),
+ 				)
+ 				gccontroller := leaderelection.NewLeaseCandidateGC(
+-					client,
++					client.Cluster(LocalAdminCluster.Path()),
+ 					LeaseCandidateGCPeriod,
+ 					lcInformer,
+ 				)
+@@ -192,7 +194,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+ 			peeraddress,
+ 			c.Extra.PeerEndpointLeaseReconciler,
+ 			c.Extra.PeerEndpointReconcileInterval,
+-			client)
++			client.Cluster(LocalAdminCluster.Path()))
+ 		s.GenericAPIServer.AddPostStartHookOrDie("peer-endpoint-reconciler-controller",
+ 			func(hookContext genericapiserver.PostStartHookContext) error {
+ 				peerEndpointCtrl.Start(hookContext.Done())
+@@ -227,7 +229,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+ 	}
+ 
+ 	s.GenericAPIServer.AddPostStartHookOrDie("start-cluster-authentication-info-controller", func(hookContext genericapiserver.PostStartHookContext) error {
+-		controller := clusterauthenticationtrust.NewClusterAuthenticationTrustController(s.ClusterAuthenticationInfo, client)
++		controller := clusterauthenticationtrust.NewClusterAuthenticationTrustController(s.ClusterAuthenticationInfo, client.Cluster(LocalAdminCluster.Path()))
+ 		// prime values and start listeners
+ 		if s.ClusterAuthenticationInfo.ClientCA != nil {
+ 			s.ClusterAuthenticationInfo.ClientCA.AddListener(controller)
+@@ -262,7 +264,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+ 		// must replace ':,[]' in [ip:port] to be able to store this as a valid label value
+ 		controller := lease.NewController(
+ 			clock.RealClock{},
+-			client,
++			client.Cluster(LocalAdminCluster.Path()),
+ 			holderIdentity,
+ 			int32(IdentityLeaseDurationSeconds),
+ 			nil,
+@@ -283,7 +285,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+ 		// TODO: move this into generic apiserver and make the lease identity value configurable
+ 		s.GenericAPIServer.AddPostStartHookOrDie("start-kube-apiserver-identity-lease-garbage-collector", func(hookContext genericapiserver.PostStartHookContext) error {
+ 			go apiserverleasegc.NewAPIServerLeaseGC(
+-				client,
++				client.Cluster(LocalAdminCluster.Path()),
+ 				IdentityLeaseGCPeriod,
+ 				metav1.NamespaceSystem,
+ 				IdentityLeaseComponentLabelKey+"="+name,
+@@ -297,7 +299,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+ 	}
+ 
+ 	s.GenericAPIServer.AddPostStartHookOrDie("start-legacy-token-tracking-controller", func(hookContext genericapiserver.PostStartHookContext) error {
+-		go legacytokentracking.NewController(client).RunWithContext(hookContext)
++		go legacytokentracking.NewController(client.Cluster(LocalAdminCluster.Path())).RunWithContext(hookContext)
+ 		return nil
+ 	})
+ 
+diff --git a/pkg/controlplane/instance.go b/pkg/controlplane/instance.go
+--- a/pkg/controlplane/instance.go
++++ b/pkg/controlplane/instance.go
+@@ -356,7 +356,7 @@ func (c CompletedConfig) New(delegationTarget genericapiserver.DelegationTarget)
+ 		ServicePort:               c.Extra.APIServerServicePort,
+ 		PublicServicePort:         publicServicePort,
+ 		KubernetesServiceNodePort: c.Extra.KubernetesServiceNodePort,
+-	}, client, c.ControlPlane.Extra.VersionedInformers.Core().V1().Services())
++	}, client, c.ControlPlane.Extra.VersionedInformers.Core().V1().Services().Cluster(controlplaneapiserver.LocalAdminCluster))
+ 	s.ControlPlane.GenericAPIServer.AddPostStartHookOrDie("bootstrap-controller", func(hookContext genericapiserver.PostStartHookContext) error {
+ 		kubernetesServiceCtrl.Start(hookContext.Done())
+ 		return nil
+diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
+--- a/pkg/kubeapiserver/options/authentication.go
++++ b/pkg/kubeapiserver/options/authentication.go
+@@ -722,7 +722,8 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
+ 
+ 	if authenticatorConfig.BootstrapToken {
+ 		authenticatorConfig.BootstrapTokenAuthenticator = bootstrap.NewTokenAuthenticator(
+-			versionedInformer.Core().V1().Secrets().Lister().Secrets(metav1.NamespaceSystem), //TODO(kcp): This should be a cluster scoped lister?
++			// TODO(sttts): make it possible to reference LocalAdminCluster here without import cycle
++			versionedInformer.Core().V1().Secrets().Lister().Cluster("system:admin").Secrets(metav1.NamespaceSystem), //TODO(kcp): This should be a cluster scoped lister?
+ 		)
+ 	}
+ 
+diff --git a/pkg/registry/rbac/rest/storage_rbac.go b/pkg/registry/rbac/rest/storage_rbac.go
+--- a/pkg/registry/rbac/rest/storage_rbac.go
++++ b/pkg/registry/rbac/rest/storage_rbac.go
+@@ -22,6 +22,8 @@ import (
+ 	"time"
+ 
+ 	"k8s.io/klog/v2"
++	kcpkubernetesclientset "github.com/kcp-dev/client-go/kubernetes"
++	"github.com/kcp-dev/logicalcluster/v3"
+ 
+ 	rbacapiv1 "k8s.io/api/rbac/v1"
+ 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+@@ -164,11 +166,13 @@ func (p *PolicyData) EnsureRBACPolicy() genericapiserver.PostStartHookFunc {
+ 		// initializing roles is really important.  On some e2e runs, we've seen cases where etcd is down when the server
+ 		// starts, the roles don't initialize, and nothing works.
+ 		err := wait.Poll(1*time.Second, 30*time.Second, func() (done bool, err error) {
+-			client, err := clientset.NewForConfig(hookContext.LoopbackClientConfig)
++			clientClusterGetter, err := kcpkubernetesclientset.NewForConfig(hookContext.LoopbackClientConfig)
+ 			if err != nil {
+ 				utilruntime.HandleError(fmt.Errorf("unable to initialize client set: %v", err))
+ 				return false, nil
+ 			}
++			// TODO(sttts): make it possible to reference LocalAdminCluster here without import cycle
++			client := clientClusterGetter.Cluster(logicalcluster.Name("system:admin").Path())
+ 			return ensureRBACPolicy(p, client)
+ 		})
+ 		// if we're never able to make it through initialization, kill the API server
+diff --git a/staging/src/k8s.io/apiserver/pkg/server/config.go b/staging/src/k8s.io/apiserver/pkg/server/config.go
+--- a/staging/src/k8s.io/apiserver/pkg/server/config.go
++++ b/staging/src/k8s.io/apiserver/pkg/server/config.go
+@@ -36,6 +36,7 @@ import (
+ 	"github.com/google/uuid"
+ 	"golang.org/x/crypto/cryptobyte"
+ 	jsonpatch "gopkg.in/evanphx/json-patch.v4"
++	"k8s.io/apiserver/pkg/informerfactoryhack"
+ 
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	"k8s.io/apimachinery/pkg/runtime"
+@@ -925,7 +926,7 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G
+ 	if c.SharedInformerFactory != nil {
+ 		if !s.isPostStartHookRegistered(genericApiServerHookName) {
+ 			err := s.AddPostStartHook(genericApiServerHookName, func(hookContext PostStartHookContext) error {
+-				c.SharedInformerFactory.Start(hookContext.Done())
++				informerfactoryhack.Unwrap(c.SharedInformerFactory).Start(hookContext.Done())
+ 				return nil
+ 			})
+ 			if err != nil {
+@@ -933,7 +934,7 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G
+ 			}
+ 		}
+ 		// TODO: Once we get rid of /healthz consider changing this to post-start-hook.
+-		err := s.AddReadyzChecks(healthz.NewInformerSyncHealthz(c.SharedInformerFactory))
++		err := s.AddReadyzChecks(healthz.NewInformerSyncHealthz(informerfactoryhack.Unwrap(c.SharedInformerFactory)))
+ 		if err != nil {
+ 			return nil, err
+ 		}

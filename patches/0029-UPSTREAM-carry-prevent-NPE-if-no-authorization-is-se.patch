@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Marvin Beckers <marvin@kubermatic.com>
+Date: Fri, 21 Jun 2024 15:32:59 +0200
+Subject: [PATCH] UPSTREAM: <carry>: prevent NPE if no authorization is set
+
+Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
+---
+ pkg/controlplane/apiserver/options/options.go | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/pkg/controlplane/apiserver/options/options.go b/pkg/controlplane/apiserver/options/options.go
+--- a/pkg/controlplane/apiserver/options/options.go
++++ b/pkg/controlplane/apiserver/options/options.go
+@@ -264,7 +264,9 @@ func (o *Options) Complete(ctx context.Context, alternateDNS []string, alternate
+ 	}
+ 
+ 	// put authorization options in final state
+-	completed.Authorization.Complete()
++	if completed.Authorization != nil {
++		completed.Authorization.Complete()
++	}
+ 	// adjust authentication for completed authorization
+ 	completed.Authentication.ApplyAuthorization(completed.Authorization)
+ 

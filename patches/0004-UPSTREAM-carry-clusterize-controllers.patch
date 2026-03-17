@@ -1,0 +1,1699 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
+Date: Fri, 1 Sep 2023 12:14:15 +0200
+Subject: [PATCH] UPSTREAM: <carry>: clusterize controllers
+
+Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+Co-authored-by: Marvin Beckers <marvin@kubermatic.com>
+Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ cmd/kube-controller-manager/app/core.go       |   6 +-
+ .../rootcacertpublisher/publisher.go          |  67 ++++--
+ .../clusterroleaggregation_controller.go      |  53 +++--
+ .../deletion/namespaced_resources_deleter.go  | 138 ++++++++----
+ .../namespaced_resources_deleter_test.go      |  15 +-
+ .../namespace/namespace_controller.go         |  33 +--
+ .../resource_quota_controller.go              |  16 +-
+ .../resourcequota/resource_quota_monitor.go   |   2 +
+ .../serviceaccounts_controller.go             |  42 ++--
+ pkg/controller/serviceaccount/tokengetter.go  |  41 +++-
+ .../serviceaccount/tokens_controller.go       | 213 +++++++++++++++---
+ pkg/kubeapiserver/options/authentication.go   |   9 -
+ pkg/serviceaccount/jwt.go                     |   7 +
+ test/e2e/apimachinery/discovery.go            |   3 +-
+ .../e2e_node/services/namespace_controller.go |   6 +-
+ .../namespace/ns_conditions_test.go           |  17 +-
+ 16 files changed, 498 insertions(+), 170 deletions(-)
+
+diff --git a/cmd/kube-controller-manager/app/core.go b/cmd/kube-controller-manager/app/core.go
+--- a/cmd/kube-controller-manager/app/core.go
++++ b/cmd/kube-controller-manager/app/core.go
+@@ -28,6 +28,8 @@ import (
+ 	"time"
+ 
+ 	v1 "k8s.io/api/core/v1"
++	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	"k8s.io/apimachinery/pkg/runtime/schema"
+ 	genericfeatures "k8s.io/apiserver/pkg/features"
+ 	"k8s.io/apiserver/pkg/quota/v1/generic"
+ 	"k8s.io/client-go/discovery"
+@@ -590,7 +592,9 @@ func newModifiedNamespaceController(
+ 		return nil, err
+ 	}
+ 
+-	discoverResourcesFn := namespaceKubeClient.Discovery().ServerPreferredNamespacedResources
++	discoverResourcesFn := func(clusterName logicalcluster.Name) ([]*metav1.APIResourceList, error) {
++		return namespaceKubeClient.Discovery().ServerPreferredNamespacedResources()
++	}
+ 
+ 	namespaceController := namespacecontroller.NewNamespaceController(
+ 		ctx,
+diff --git a/pkg/controller/certificates/rootcacertpublisher/publisher.go b/pkg/controller/certificates/rootcacertpublisher/publisher.go
+--- a/pkg/controller/certificates/rootcacertpublisher/publisher.go
++++ b/pkg/controller/certificates/rootcacertpublisher/publisher.go
+@@ -23,14 +23,16 @@ import (
+ 	"sync"
+ 	"time"
+ 
++	kcpcache "github.com/kcp-dev/apimachinery/v2/pkg/cache"
++	kcpcorev1informers "github.com/kcp-dev/client-go/informers/core/v1"
++	kcpkubernetesclientset "github.com/kcp-dev/client-go/kubernetes"
++	kcpcorev1listers "github.com/kcp-dev/client-go/listers/core/v1"
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	v1 "k8s.io/api/core/v1"
+ 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+ 	"k8s.io/apimachinery/pkg/util/wait"
+-	coreinformers "k8s.io/client-go/informers/core/v1"
+-	clientset "k8s.io/client-go/kubernetes"
+-	corelisters "k8s.io/client-go/listers/core/v1"
+ 	"k8s.io/client-go/tools/cache"
+ 	"k8s.io/client-go/util/workqueue"
+ 	"k8s.io/klog/v2"
+@@ -52,7 +54,7 @@ func init() {
+ // NewPublisher construct a new controller which would manage the configmap
+ // which stores certificates in each namespace. It will make sure certificate
+ // configmap exists in each namespace.
+-func NewPublisher(cmInformer coreinformers.ConfigMapInformer, nsInformer coreinformers.NamespaceInformer, cl clientset.Interface, rootCA []byte) (*Publisher, error) {
++func NewPublisher(cmInformer kcpcorev1informers.ConfigMapClusterInformer, nsInformer kcpcorev1informers.NamespaceClusterInformer, cl kcpkubernetesclientset.ClusterInterface, rootCA []byte) (*Publisher, error) {
+ 	e := &Publisher{
+ 		client: cl,
+ 		rootCA: rootCA,
+@@ -85,13 +87,13 @@ func NewPublisher(cmInformer coreinformers.ConfigMapInformer, nsInformer coreinf
+ 
+ // Publisher manages certificate ConfigMap objects inside Namespaces
+ type Publisher struct {
+-	client clientset.Interface
++	client kcpkubernetesclientset.ClusterInterface
+ 	rootCA []byte
+ 
+ 	// To allow injection for testing.
+ 	syncHandler func(ctx context.Context, key string) error
+ 
+-	cmLister       corelisters.ConfigMapLister
++	cmLister       kcpcorev1listers.ConfigMapClusterLister
+ 	cmListerSynced cache.InformerSynced
+ 
+ 	nsListerSynced cache.InformerSynced
+@@ -134,7 +136,12 @@ func (c *Publisher) configMapDeleted(obj interface{}) {
+ 	if cm.Name != RootCACertConfigMapName {
+ 		return
+ 	}
+-	c.queue.Add(cm.Namespace)
++
++	key := getNamespaceKey(cm)
++	if key == "" {
++		return
++	}
++	c.queue.Add(key)
+ }
+ 
+ func (c *Publisher) configMapUpdated(_, newObj interface{}) {
+@@ -146,12 +153,24 @@ func (c *Publisher) configMapUpdated(_, newObj interface{}) {
+ 	if cm.Name != RootCACertConfigMapName {
+ 		return
+ 	}
+-	c.queue.Add(cm.Namespace)
++
++	key := getNamespaceKey(cm)
++	if key == "" {
++		return
++	}
++	c.queue.Add(key)
+ }
+ 
+ func (c *Publisher) namespaceAdded(obj interface{}) {
+ 	namespace := obj.(*v1.Namespace)
+-	c.queue.Add(namespace.Name)
++
++	key, err := kcpcache.MetaClusterNamespaceKeyFunc(namespace)
++	if err != nil {
++		utilruntime.HandleError(err)
++		return
++	}
++
++	c.queue.Add(key)
+ }
+ 
+ func (c *Publisher) namespaceUpdated(oldObj interface{}, newObj interface{}) {
+@@ -159,7 +178,14 @@ func (c *Publisher) namespaceUpdated(oldObj interface{}, newObj interface{}) {
+ 	if newNamespace.Status.Phase != v1.NamespaceActive {
+ 		return
+ 	}
+-	c.queue.Add(newNamespace.Name)
++
++	key, err := kcpcache.MetaClusterNamespaceKeyFunc(newNamespace)
++	if err != nil {
++		utilruntime.HandleError(err)
++		return
++	}
++
++	c.queue.Add(key)
+ }
+ 
+ func (c *Publisher) runWorker(ctx context.Context) {
+@@ -186,17 +212,24 @@ func (c *Publisher) processNextWorkItem(ctx context.Context) bool {
+ 	return true
+ }
+ 
+-func (c *Publisher) syncNamespace(ctx context.Context, ns string) (err error) {
++func (c *Publisher) syncNamespace(ctx context.Context, key string) (err error) {
+ 	startTime := time.Now()
+ 	defer func() {
+ 		recordMetrics(startTime, err)
+-		klog.FromContext(ctx).V(4).Info("Finished syncing namespace", "namespace", ns, "elapsedTime", time.Since(startTime))
++		klog.FromContext(ctx).V(4).Info("Finished syncing namespace %q (%v)", key, time.Since(startTime))
+ 	}()
+ 
+-	cm, err := c.cmLister.ConfigMaps(ns).Get(RootCACertConfigMapName)
++	// Get the clusterName and name from the key.
++	clusterName, _, name, err := kcpcache.SplitMetaClusterNamespaceKey(key)
++	if err != nil {
++		utilruntime.HandleError(err)
++		return err
++	}
++	cm, err := c.cmLister.Cluster(clusterName).ConfigMaps(name).Get(RootCACertConfigMapName)
++
+ 	switch {
+ 	case apierrors.IsNotFound(err):
+-		_, err = c.client.CoreV1().ConfigMaps(ns).Create(ctx, &v1.ConfigMap{
++		_, err = c.client.Cluster(clusterName.Path()).CoreV1().ConfigMaps(name).Create(ctx, &v1.ConfigMap{
+ 			ObjectMeta: metav1.ObjectMeta{
+ 				Name:        RootCACertConfigMapName,
+ 				Annotations: map[string]string{DescriptionAnnotation: Description},
+@@ -231,7 +264,7 @@ func (c *Publisher) syncNamespace(ctx context.Context, ns string) (err error) {
+ 	}
+ 	cm.Annotations[DescriptionAnnotation] = Description
+ 
+-	_, err = c.client.CoreV1().ConfigMaps(ns).Update(ctx, cm, metav1.UpdateOptions{})
++	_, err = c.client.Cluster(clusterName.Path()).CoreV1().ConfigMaps(name).Update(ctx, cm, metav1.UpdateOptions{})
+ 	return err
+ }
+ 
+@@ -249,3 +282,7 @@ func convertToCM(obj interface{}) (*v1.ConfigMap, error) {
+ 	}
+ 	return cm, nil
+ }
++
++func getNamespaceKey(configmap *v1.ConfigMap) string {
++	return kcpcache.ToClusterAwareKey(logicalcluster.From(configmap).String(), "", configmap.GetNamespace())
++}
+diff --git a/pkg/controller/clusterroleaggregation/clusterroleaggregation_controller.go b/pkg/controller/clusterroleaggregation/clusterroleaggregation_controller.go
+--- a/pkg/controller/clusterroleaggregation/clusterroleaggregation_controller.go
++++ b/pkg/controller/clusterroleaggregation/clusterroleaggregation_controller.go
+@@ -23,7 +23,11 @@ import (
+ 	"sync"
+ 	"time"
+ 
+-	rbacv1ac "k8s.io/client-go/applyconfigurations/rbac/v1"
++	kcpcache "github.com/kcp-dev/apimachinery/v2/pkg/cache"
++	kcprbacinformers "github.com/kcp-dev/client-go/informers/rbac/v1"
++	kcprbacclient "github.com/kcp-dev/client-go/kubernetes/typed/rbac/v1"
++	kcprbaclisters "github.com/kcp-dev/client-go/listers/rbac/v1"
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	"k8s.io/klog/v2"
+ 
+ 	rbacv1 "k8s.io/api/rbac/v1"
+@@ -33,19 +37,15 @@ import (
+ 	"k8s.io/apimachinery/pkg/labels"
+ 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+ 	"k8s.io/apimachinery/pkg/util/wait"
+-	rbacinformers "k8s.io/client-go/informers/rbac/v1"
+-	rbacclient "k8s.io/client-go/kubernetes/typed/rbac/v1"
+-	rbaclisters "k8s.io/client-go/listers/rbac/v1"
++	rbacv1ac "k8s.io/client-go/applyconfigurations/rbac/v1"
+ 	"k8s.io/client-go/tools/cache"
+ 	"k8s.io/client-go/util/workqueue"
+-
+-	"k8s.io/kubernetes/pkg/controller"
+ )
+ 
+ // ClusterRoleAggregationController is a controller to combine cluster roles
+ type ClusterRoleAggregationController struct {
+-	clusterRoleClient  rbacclient.ClusterRolesGetter
+-	clusterRoleLister  rbaclisters.ClusterRoleLister
++	clusterRoleClient  kcprbacclient.ClusterRolesClusterGetter
++	clusterRoleLister  kcprbaclisters.ClusterRoleClusterLister
+ 	clusterRolesSynced cache.InformerSynced
+ 
+ 	syncHandler func(ctx context.Context, key string) error
+@@ -53,7 +53,7 @@ type ClusterRoleAggregationController struct {
+ }
+ 
+ // NewClusterRoleAggregation creates a new controller
+-func NewClusterRoleAggregation(clusterRoleInformer rbacinformers.ClusterRoleInformer, clusterRoleClient rbacclient.ClusterRolesGetter) *ClusterRoleAggregationController {
++func NewClusterRoleAggregation(clusterRoleInformer kcprbacinformers.ClusterRoleClusterInformer, clusterRoleClient kcprbacclient.ClusterRolesClusterGetter) *ClusterRoleAggregationController {
+ 	c := &ClusterRoleAggregationController{
+ 		clusterRoleClient:  clusterRoleClient,
+ 		clusterRoleLister:  clusterRoleInformer.Lister(),
+@@ -70,24 +70,24 @@ func NewClusterRoleAggregation(clusterRoleInformer rbacinformers.ClusterRoleInfo
+ 
+ 	clusterRoleInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+ 		AddFunc: func(obj interface{}) {
+-			c.enqueue()
++			c.enqueue(obj)
+ 		},
+ 		UpdateFunc: func(old, cur interface{}) {
+-			c.enqueue()
++			c.enqueue(cur)
+ 		},
+ 		DeleteFunc: func(uncast interface{}) {
+-			c.enqueue()
++			c.enqueue(uncast)
+ 		},
+ 	})
+ 	return c
+ }
+ 
+ func (c *ClusterRoleAggregationController) syncClusterRole(ctx context.Context, key string) error {
+-	_, name, err := cache.SplitMetaNamespaceKey(key)
++	clusterName, _, name, err := kcpcache.SplitMetaClusterNamespaceKey(key)
+ 	if err != nil {
+ 		return err
+ 	}
+-	sharedClusterRole, err := c.clusterRoleLister.Get(name)
++	sharedClusterRole, err := c.clusterRoleLister.Cluster(clusterName).Get(name)
+ 	if errors.IsNotFound(err) {
+ 		return nil
+ 	}
+@@ -105,7 +105,7 @@ func (c *ClusterRoleAggregationController) syncClusterRole(ctx context.Context,
+ 		if err != nil {
+ 			return err
+ 		}
+-		clusterRoles, err := c.clusterRoleLister.List(runtimeLabelSelector)
++		clusterRoles, err := c.clusterRoleLister.Cluster(clusterName).List(runtimeLabelSelector)
+ 		if err != nil {
+ 			return err
+ 		}
+@@ -129,15 +129,15 @@ func (c *ClusterRoleAggregationController) syncClusterRole(ctx context.Context,
+ 		return nil
+ 	}
+ 
+-	return c.applyClusterRoles(ctx, sharedClusterRole.Name, newPolicyRules)
++	return c.applyClusterRoles(ctx, logicalcluster.From(sharedClusterRole).Path(), sharedClusterRole.Name, newPolicyRules)
+ }
+ 
+-func (c *ClusterRoleAggregationController) applyClusterRoles(ctx context.Context, name string, newPolicyRules []rbacv1.PolicyRule) error {
++func (c *ClusterRoleAggregationController) applyClusterRoles(ctx context.Context, clusterPath logicalcluster.Path, name string, newPolicyRules []rbacv1.PolicyRule) error {
+ 	clusterRoleApply := rbacv1ac.ClusterRole(name).
+ 		WithRules(toApplyPolicyRules(newPolicyRules)...)
+ 
+ 	opts := metav1.ApplyOptions{FieldManager: "clusterrole-aggregation-controller", Force: true}
+-	_, err := c.clusterRoleClient.ClusterRoles().Apply(ctx, clusterRoleApply, opts)
++	_, err := c.clusterRoleClient.ClusterRoles().Cluster(clusterPath).Apply(ctx, clusterRoleApply, opts)
+ 	return err
+ }
+ 
+@@ -218,11 +218,22 @@ func (c *ClusterRoleAggregationController) processNextWorkItem(ctx context.Conte
+ 	return true
+ }
+ 
+-func (c *ClusterRoleAggregationController) enqueue() {
++func (c *ClusterRoleAggregationController) enqueue(obj interface{}) {
++	key, err := kcpcache.DeletionHandlingMetaClusterNamespaceKeyFunc(obj)
++	if err != nil {
++		utilruntime.HandleError(err)
++		return
++	}
++	clusterName, _, _, err := kcpcache.SplitMetaClusterNamespaceKey(key)
++	if err != nil {
++		utilruntime.HandleError(err)
++		return
++	}
++
+ 	// this is unusual, but since the set of all clusterroles is small and we don't know the dependency
+ 	// graph, just queue up every thing each time.  This allows errors to be selectively retried if there
+ 	// is a problem updating a single role
+-	allClusterRoles, err := c.clusterRoleLister.List(labels.Everything())
++	allClusterRoles, err := c.clusterRoleLister.Cluster(clusterName).List(labels.Everything())
+ 	if err != nil {
+ 		utilruntime.HandleError(fmt.Errorf("Couldn't list all objects %v", err))
+ 		return
+@@ -232,7 +243,7 @@ func (c *ClusterRoleAggregationController) enqueue() {
+ 		if clusterRole.AggregationRule == nil {
+ 			continue
+ 		}
+-		key, err := controller.KeyFunc(clusterRole)
++		key, err := kcpcache.DeletionHandlingMetaClusterNamespaceKeyFunc(clusterRole)
+ 		if err != nil {
+ 			utilruntime.HandleError(fmt.Errorf("Couldn't get key for object %#v: %v", clusterRole, err))
+ 			return
+diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b/pkg/controller/namespace/deletion/namespaced_resources_deleter.go
+--- a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go
++++ b/pkg/controller/namespace/deletion/namespaced_resources_deleter.go
+@@ -23,6 +23,9 @@ import (
+ 	"sync"
+ 	"time"
+ 
++	kcpcorev1client "github.com/kcp-dev/client-go/kubernetes/typed/core/v1"
++	kcpmetadata "github.com/kcp-dev/client-go/metadata"
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	"k8s.io/klog/v2"
+ 
+ 	v1 "k8s.io/api/core/v1"
+@@ -34,32 +37,27 @@ import (
+ 	"k8s.io/apimachinery/pkg/util/sets"
+ 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+ 	"k8s.io/client-go/discovery"
+-	v1clientset "k8s.io/client-go/kubernetes/typed/core/v1"
+-	"k8s.io/client-go/metadata"
+ 	"k8s.io/kubernetes/pkg/features"
+ )
+ 
+ // NamespacedResourcesDeleterInterface is the interface to delete a namespace with all resources in it.
+ type NamespacedResourcesDeleterInterface interface {
+-	Delete(ctx context.Context, nsName string) error
++	Delete(ctx context.Context, clusterName logicalcluster.Name, nsName string) error
+ }
+ 
+ // NewNamespacedResourcesDeleter returns a new NamespacedResourcesDeleter.
+-func NewNamespacedResourcesDeleter(ctx context.Context, nsClient v1clientset.NamespaceInterface,
+-	metadataClient metadata.Interface, podsGetter v1clientset.PodsGetter,
+-	discoverResourcesFn func() ([]*metav1.APIResourceList, error),
++func NewNamespacedResourcesDeleter(ctx context.Context, nsClient kcpcorev1client.NamespaceClusterInterface,
++	metadataClient kcpmetadata.ClusterInterface, podsGetter kcpcorev1client.PodsClusterGetter,
++	discoverResourcesFn func(clusterName logicalcluster.Path) ([]*metav1.APIResourceList, error),
+ 	finalizerToken v1.FinalizerName) NamespacedResourcesDeleterInterface {
+ 	d := &namespacedResourcesDeleter{
+-		nsClient:       nsClient,
+-		metadataClient: metadataClient,
+-		podsGetter:     podsGetter,
+-		opCache: &operationNotSupportedCache{
+-			m: make(map[operationKey]bool),
+-		},
++		nsClient:            nsClient,
++		metadataClient:      metadataClient,
++		podsGetter:          podsGetter,
++		opCaches:            map[logicalcluster.Name]*operationNotSupportedCache{},
+ 		discoverResourcesFn: discoverResourcesFn,
+ 		finalizerToken:      finalizerToken,
+ 	}
+-	d.initOpCache(ctx)
+ 	return d
+ }
+ 
+@@ -68,14 +66,16 @@ var _ NamespacedResourcesDeleterInterface = &namespacedResourcesDeleter{}
+ // namespacedResourcesDeleter is used to delete all resources in a given namespace.
+ type namespacedResourcesDeleter struct {
+ 	// Client to manipulate the namespace.
+-	nsClient v1clientset.NamespaceInterface
++	nsClient kcpcorev1client.NamespaceClusterInterface
+ 	// Dynamic client to list and delete all namespaced resources.
+-	metadataClient metadata.Interface
++	metadataClient kcpmetadata.ClusterInterface
+ 	// Interface to get PodInterface.
+-	podsGetter v1clientset.PodsGetter
++	podsGetter kcpcorev1client.PodsClusterGetter
+ 	// Cache of what operations are not supported on each group version resource.
+-	opCache             *operationNotSupportedCache
+-	discoverResourcesFn func() ([]*metav1.APIResourceList, error)
++	opCaches      map[logicalcluster.Name]*operationNotSupportedCache
++	opCachesMutex sync.RWMutex
++
++	discoverResourcesFn func(clusterName logicalcluster.Path) ([]*metav1.APIResourceList, error)
+ 	// The finalizer token that should be removed from the namespace
+ 	// when all resources in that namespace have been deleted.
+ 	finalizerToken v1.FinalizerName
+@@ -95,11 +95,11 @@ type namespacedResourcesDeleter struct {
+ // Returns ResourcesRemainingError if it deleted some resources but needs
+ // to wait for them to go away.
+ // Caller is expected to keep calling this until it succeeds.
+-func (d *namespacedResourcesDeleter) Delete(ctx context.Context, nsName string) error {
++func (d *namespacedResourcesDeleter) Delete(ctx context.Context, clusterName logicalcluster.Name, nsName string) error {
+ 	// Multiple controllers may edit a namespace during termination
+ 	// first get the latest state of the namespace before proceeding
+ 	// if the namespace was deleted already, don't do anything
+-	namespace, err := d.nsClient.Get(ctx, nsName, metav1.GetOptions{})
++	namespace, err := d.nsClient.Cluster(clusterName.Path()).Get(ctx, nsName, metav1.GetOptions{})
+ 	if err != nil {
+ 		if errors.IsNotFound(err) {
+ 			return nil
+@@ -155,11 +155,11 @@ func (d *namespacedResourcesDeleter) Delete(ctx context.Context, nsName string)
+ 	return nil
+ }
+ 
+-func (d *namespacedResourcesDeleter) initOpCache(ctx context.Context) {
++func (d *namespacedResourcesDeleter) initOpCache(ctx context.Context, clusterName logicalcluster.Name) {
+ 	// pre-fill opCache with the discovery info
+ 	//
+ 	// TODO(sttts): get rid of opCache and http 405 logic around it and trust discovery info
+-	resources, err := d.discoverResourcesFn()
++	resources, err := d.discoverResourcesFn(clusterName.Path())
+ 	if err != nil {
+ 		utilruntime.HandleErrorWithContext(ctx, err, "Unable to get all supported resources from server")
+ 	}
+@@ -186,7 +186,7 @@ func (d *namespacedResourcesDeleter) initOpCache(ctx context.Context) {
+ 
+ 			for _, op := range []operation{operationList, operationDeleteCollection} {
+ 				if !verbs.Has(string(op)) {
+-					d.opCache.setNotSupported(operationKey{operation: op, gvr: gvr})
++					d.opCaches[clusterName].setNotSupported(operationKey{operation: op, gvr: gvr})
+ 				}
+ 			}
+ 		}
+@@ -238,6 +238,39 @@ func (o *operationNotSupportedCache) setNotSupported(key operationKey) {
+ 	o.m[key] = true
+ }
+ 
++// isSupported returns true if the operation is supported
++func (d *namespacedResourcesDeleter) isSupported(ctx context.Context, clusterName logicalcluster.Name, key operationKey) (bool, error) {
++	// Quick read-only check to see if the cache already exists
++	d.opCachesMutex.RLock()
++	cache, exists := d.opCaches[clusterName]
++	d.opCachesMutex.RUnlock()
++
++	if exists {
++		return cache.isSupported(key), nil
++	}
++
++	// Doesn't exist - may need to create
++	d.opCachesMutex.Lock()
++	defer d.opCachesMutex.Unlock()
++
++	// Check again, with the write lock held, to see if it exists. It's possible another goroutine set it in between
++	// when we checked with the read lock held, and now.
++	cache, exists = d.opCaches[clusterName]
++	if exists {
++		return cache.isSupported(key), nil
++	}
++
++	// Definitely doesn't exist - need to create it.
++	cache = &operationNotSupportedCache{
++		m: make(map[operationKey]bool),
++	}
++	d.opCaches[clusterName] = cache
++
++	d.initOpCache(ctx, clusterName)
++
++	return cache.isSupported(key), nil
++}
++
+ // updateNamespaceFunc is a function that makes an update to a namespace
+ type updateNamespaceFunc func(ctx context.Context, namespace *v1.Namespace) (*v1.Namespace, error)
+ 
+@@ -255,7 +288,7 @@ func (d *namespacedResourcesDeleter) retryOnConflictError(ctx context.Context, n
+ 			return nil, err
+ 		}
+ 		prevNamespace := latestNamespace
+-		latestNamespace, err = d.nsClient.Get(ctx, latestNamespace.Name, metav1.GetOptions{})
++		latestNamespace, err = d.nsClient.Cluster(logicalcluster.From(latestNamespace).Path()).Get(ctx, latestNamespace.Name, metav1.GetOptions{})
+ 		if err != nil {
+ 			return nil, err
+ 		}
+@@ -272,7 +305,7 @@ func (d *namespacedResourcesDeleter) updateNamespaceStatusFunc(ctx context.Conte
+ 	}
+ 	newNamespace := namespace.DeepCopy()
+ 	newNamespace.Status.Phase = v1.NamespaceTerminating
+-	return d.nsClient.UpdateStatus(ctx, newNamespace, metav1.UpdateOptions{})
++	return d.nsClient.Cluster(logicalcluster.From(namespace).Path()).UpdateStatus(ctx, newNamespace, metav1.UpdateOptions{})
+ }
+ 
+ // finalized returns true if the namespace.Spec.Finalizers is an empty list
+@@ -295,7 +328,7 @@ func (d *namespacedResourcesDeleter) finalizeNamespace(ctx context.Context, name
+ 	for _, value := range finalizerSet.List() {
+ 		namespaceFinalize.Spec.Finalizers = append(namespaceFinalize.Spec.Finalizers, v1.FinalizerName(value))
+ 	}
+-	namespace, err := d.nsClient.Finalize(ctx, &namespaceFinalize, metav1.UpdateOptions{})
++	namespace, err := d.nsClient.Cluster(logicalcluster.From(namespace).Path()).Finalize(ctx, &namespaceFinalize, metav1.UpdateOptions{})
+ 	if err != nil {
+ 		// it was removed already, so life is good
+ 		if errors.IsNotFound(err) {
+@@ -308,13 +341,15 @@ func (d *namespacedResourcesDeleter) finalizeNamespace(ctx context.Context, name
+ // deleteCollection is a helper function that will delete the collection of resources
+ // it returns true if the operation was supported on the server.
+ // it returns an error if the operation was supported on the server but was unable to complete.
+-func (d *namespacedResourcesDeleter) deleteCollection(ctx context.Context, gvr schema.GroupVersionResource, namespace string) (bool, error) {
++func (d *namespacedResourcesDeleter) deleteCollection(ctx context.Context, clusterName logicalcluster.Name, gvr schema.GroupVersionResource, namespace string) (bool, error) {
+ 	logger := klog.FromContext(ctx)
+ 	logger.V(5).Info("Namespace controller - deleteCollection", "namespace", namespace, "resource", gvr)
+ 
+ 	key := operationKey{operation: operationDeleteCollection, gvr: gvr}
+-	if !d.opCache.isSupported(key) {
+-		logger.V(5).Info("Namespace controller - deleteCollection ignored since not supported", "namespace", namespace, "resource", gvr)
++	if supported, err := d.isSupported(ctx, clusterName, key); err != nil {
++		return false, err
++	} else if !supported {
++		logger.V(5).Info("namespace controller - deleteCollection ignored since not supported - namespace", "namespace", namespace, "resource", gvr)
+ 		return false, nil
+ 	}
+ 
+@@ -323,7 +358,8 @@ func (d *namespacedResourcesDeleter) deleteCollection(ctx context.Context, gvr s
+ 	// namespace itself.
+ 	background := metav1.DeletePropagationBackground
+ 	opts := metav1.DeleteOptions{PropagationPolicy: &background}
+-	err := d.metadataClient.Resource(gvr).Namespace(namespace).DeleteCollection(ctx, opts, metav1.ListOptions{})
++	err := d.metadataClient.Cluster(clusterName.Path()).Resource(gvr).Namespace(namespace).DeleteCollection(ctx, opts, metav1.ListOptions{})
++
+ 	if err == nil {
+ 		return true, nil
+ 	}
+@@ -348,17 +384,20 @@ func (d *namespacedResourcesDeleter) deleteCollection(ctx context.Context, gvr s
+ //	the list of items in the collection (if found)
+ //	a boolean if the operation is supported
+ //	an error if the operation is supported but could not be completed.
+-func (d *namespacedResourcesDeleter) listCollection(ctx context.Context, gvr schema.GroupVersionResource, namespace string) (*metav1.PartialObjectMetadataList, bool, error) {
++func (d *namespacedResourcesDeleter) listCollection(ctx context.Context, clusterName logicalcluster.Name, gvr schema.GroupVersionResource, namespace string) (*metav1.PartialObjectMetadataList, bool, error) {
+ 	logger := klog.FromContext(ctx)
+ 	logger.V(5).Info("Namespace controller - listCollection", "namespace", namespace, "resource", gvr)
+ 
+ 	key := operationKey{operation: operationList, gvr: gvr}
+-	if !d.opCache.isSupported(key) {
++	if supported, err := d.isSupported(ctx, clusterName, key); err != nil {
+ 		logger.V(5).Info("Namespace controller - listCollection ignored since not supported", "namespace", namespace, "resource", gvr)
++		return nil, false, err
++	} else if !supported {
++		logger.V(5).Info("namespace controller - listCollection ignored since not supported - namespace", "namespace", namespace, "resource", gvr)
+ 		return nil, false, nil
+ 	}
+ 
+-	partialList, err := d.metadataClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
++	partialList, err := d.metadataClient.Cluster(clusterName.Path()).Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
+ 	if err == nil {
+ 		return partialList, true, nil
+ 	}
+@@ -377,10 +416,10 @@ func (d *namespacedResourcesDeleter) listCollection(ctx context.Context, gvr sch
+ }
+ 
+ // deleteEachItem is a helper function that will list the collection of resources and delete each item 1 by 1.
+-func (d *namespacedResourcesDeleter) deleteEachItem(ctx context.Context, gvr schema.GroupVersionResource, namespace string) error {
++func (d *namespacedResourcesDeleter) deleteEachItem(ctx context.Context, clusterName logicalcluster.Name, gvr schema.GroupVersionResource, namespace string) error {
+ 	klog.FromContext(ctx).V(5).Info("Namespace controller - deleteEachItem", "namespace", namespace, "resource", gvr)
+ 
+-	partialList, listSupported, err := d.listCollection(ctx, gvr, namespace)
++	partialList, listSupported, err := d.listCollection(ctx, clusterName, gvr, namespace)
+ 	if err != nil {
+ 		return err
+ 	}
+@@ -390,7 +429,7 @@ func (d *namespacedResourcesDeleter) deleteEachItem(ctx context.Context, gvr sch
+ 	for _, item := range partialList.Items {
+ 		background := metav1.DeletePropagationBackground
+ 		opts := metav1.DeleteOptions{PropagationPolicy: &background}
+-		if err = d.metadataClient.Resource(gvr).Namespace(namespace).Delete(ctx, item.GetName(), opts); err != nil && !errors.IsNotFound(err) && !errors.IsMethodNotSupported(err) {
++		if err = d.metadataClient.Cluster(clusterName.Path()).Resource(gvr).Namespace(namespace).Delete(ctx, item.GetName(), opts); err != nil && !errors.IsNotFound(err) && !errors.IsMethodNotSupported(err) {
+ 			return err
+ 		}
+ 	}
+@@ -412,13 +451,14 @@ type gvrDeletionMetadata struct {
+ // If estimate > 0, not all resources are guaranteed to be gone.
+ func (d *namespacedResourcesDeleter) deleteAllContentForGroupVersionResource(
+ 	ctx context.Context,
++	clusterName logicalcluster.Name,
+ 	gvr schema.GroupVersionResource, namespace string,
+ 	namespaceDeletedAt metav1.Time) (gvrDeletionMetadata, error) {
+ 	logger := klog.FromContext(ctx)
+ 	logger.V(5).Info("Namespace controller - deleteAllContentForGroupVersionResource", "namespace", namespace, "resource", gvr)
+ 
+ 	// estimate how long it will take for the resource to be deleted (needed for objects that support graceful delete)
+-	estimate, err := d.estimateGracefulTermination(ctx, gvr, namespace, namespaceDeletedAt)
++	estimate, err := d.estimateGracefulTermination(ctx, clusterName, gvr, namespace, namespaceDeletedAt)
+ 	if err != nil {
+ 		logger.V(5).Info("Namespace controller - deleteAllContentForGroupVersionResource - unable to estimate", "namespace", namespace, "resource", gvr, "err", err)
+ 		return gvrDeletionMetadata{}, err
+@@ -426,14 +466,14 @@ func (d *namespacedResourcesDeleter) deleteAllContentForGroupVersionResource(
+ 	logger.V(5).Info("Namespace controller - deleteAllContentForGroupVersionResource - estimate", "namespace", namespace, "resource", gvr, "estimate", estimate)
+ 
+ 	// first try to delete the entire collection
+-	deleteCollectionSupported, err := d.deleteCollection(ctx, gvr, namespace)
++	deleteCollectionSupported, err := d.deleteCollection(ctx, clusterName, gvr, namespace)
+ 	if err != nil {
+ 		return gvrDeletionMetadata{finalizerEstimateSeconds: estimate}, err
+ 	}
+ 
+ 	// delete collection was not supported, so we list and delete each item...
+ 	if !deleteCollectionSupported {
+-		err = d.deleteEachItem(ctx, gvr, namespace)
++		err = d.deleteEachItem(ctx, clusterName, gvr, namespace)
+ 		if err != nil {
+ 			return gvrDeletionMetadata{finalizerEstimateSeconds: estimate}, err
+ 		}
+@@ -442,7 +482,7 @@ func (d *namespacedResourcesDeleter) deleteAllContentForGroupVersionResource(
+ 	// verify there are no more remaining items
+ 	// it is not an error condition for there to be remaining items if local estimate is non-zero
+ 	logger.V(5).Info("Namespace controller - deleteAllContentForGroupVersionResource - checking for no more items in namespace", "namespace", namespace, "resource", gvr)
+-	unstructuredList, listSupported, err := d.listCollection(ctx, gvr, namespace)
++	unstructuredList, listSupported, err := d.listCollection(ctx, clusterName, gvr, namespace)
+ 	if err != nil {
+ 		logger.V(5).Info("Namespace controller - deleteAllContentForGroupVersionResource - error verifying no items in namespace", "namespace", namespace, "resource", gvr, "err", err)
+ 		return gvrDeletionMetadata{finalizerEstimateSeconds: estimate}, err
+@@ -509,7 +549,7 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
+ 	logger := klog.FromContext(ctx)
+ 	logger.V(4).Info("namespace controller - deleteAllContent", "namespace", namespace)
+ 
+-	resources, err := d.discoverResourcesFn()
++	resources, err := d.discoverResourcesFn(logicalcluster.From(ns).Path())
+ 	if err != nil {
+ 		// discovery errors are not fatal.  We often have some set of resources we can operate against even if we don't have a complete list
+ 		errs = append(errs, err)
+@@ -532,7 +572,7 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
+ 
+ 	if _, hasPods := groupVersionResources[podsGVR]; hasPods && utilfeature.DefaultFeatureGate.Enabled(features.OrderedNamespaceDeletion) {
+ 		// Ensure all pods in the namespace are deleted first
+-		gvrDeletionMetadata, err := d.deleteAllContentForGroupVersionResource(ctx, podsGVR, namespace, namespaceDeletedAt)
++		gvrDeletionMetadata, err := d.deleteAllContentForGroupVersionResource(ctx, logicalcluster.From(ns), podsGVR, namespace, namespaceDeletedAt)
+ 		if err != nil {
+ 			errs = append(errs, fmt.Errorf("failed to delete pods for namespace: %s, err: %w", namespace, err))
+ 			conditionUpdater.ProcessDeleteContentErr(err)
+@@ -554,7 +594,7 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
+ 		if numRemainingTotals.gvrToNumRemaining[podsGVR] > 0 {
+ 			logger.V(5).Info("Namespace controller - pods still remain, delaying deletion of other resources", "namespace", namespace)
+ 			if hasChanged := conditionUpdater.Update(ns); hasChanged {
+-				if _, err = d.nsClient.UpdateStatus(ctx, ns, metav1.UpdateOptions{}); err != nil {
++				if _, err = d.nsClient.Cluster(logicalcluster.From(ns).Path()).UpdateStatus(ctx, ns, metav1.UpdateOptions{}); err != nil {
+ 					utilruntime.HandleErrorWithContext(ctx, err, "Couldn't update status condition for namespace", "namespace", namespace)
+ 				}
+ 			}
+@@ -568,7 +608,7 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
+ 			gvr.Version == podsGVR.Version && gvr.Resource == podsGVR.Resource {
+ 			continue
+ 		}
+-		gvrDeletionMetadata, err := d.deleteAllContentForGroupVersionResource(ctx, gvr, namespace, namespaceDeletedAt)
++		gvrDeletionMetadata, err := d.deleteAllContentForGroupVersionResource(ctx, logicalcluster.From(ns), gvr, namespace, namespaceDeletedAt)
+ 		if err != nil {
+ 			// If there is an error, hold on to it but proceed with all the remaining
+ 			// groupVersionResources.
+@@ -594,7 +634,7 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
+ 	// we need to reflect that information.  Recall that additional finalizers can be set on namespaces, so this finalizer may clear itself and
+ 	// NOT remove the resource instance.
+ 	if hasChanged := conditionUpdater.Update(ns); hasChanged {
+-		if _, err = d.nsClient.UpdateStatus(ctx, ns, metav1.UpdateOptions{}); err != nil {
++		if _, err = d.nsClient.Cluster(logicalcluster.From(ns).Path()).UpdateStatus(ctx, ns, metav1.UpdateOptions{}); err != nil {
+ 			utilruntime.HandleErrorWithContext(ctx, err, "Couldn't update status condition for namespace", "namespace", namespace)
+ 		}
+ 	}
+@@ -606,14 +646,14 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
+ }
+ 
+ // estimateGracefulTermination will estimate the graceful termination required for the specific entity in the namespace
+-func (d *namespacedResourcesDeleter) estimateGracefulTermination(ctx context.Context, gvr schema.GroupVersionResource, ns string, namespaceDeletedAt metav1.Time) (int64, error) {
++func (d *namespacedResourcesDeleter) estimateGracefulTermination(ctx context.Context, clusterName logicalcluster.Name, gvr schema.GroupVersionResource, ns string, namespaceDeletedAt metav1.Time) (int64, error) {
+ 	groupResource := gvr.GroupResource()
+ 	klog.FromContext(ctx).V(5).Info("Namespace controller - estimateGracefulTermination", "group", groupResource.Group, "resource", groupResource.Resource)
+ 	estimate := int64(0)
+ 	var err error
+ 	switch groupResource {
+ 	case schema.GroupResource{Group: "", Resource: "pods"}:
+-		estimate, err = d.estimateGracefulTerminationForPods(ctx, ns)
++		estimate, err = d.estimateGracefulTerminationForPods(ctx, clusterName, ns)
+ 	}
+ 	if err != nil {
+ 		return 0, err
+@@ -628,14 +668,14 @@ func (d *namespacedResourcesDeleter) estimateGracefulTermination(ctx context.Con
+ }
+ 
+ // estimateGracefulTerminationForPods determines the graceful termination period for pods in the namespace
+-func (d *namespacedResourcesDeleter) estimateGracefulTerminationForPods(ctx context.Context, ns string) (int64, error) {
++func (d *namespacedResourcesDeleter) estimateGracefulTerminationForPods(ctx context.Context, clusterName logicalcluster.Name, ns string) (int64, error) {
+ 	klog.FromContext(ctx).V(5).Info("Namespace controller - estimateGracefulTerminationForPods", "namespace", ns)
+ 	estimate := int64(0)
+ 	podsGetter := d.podsGetter
+ 	if podsGetter == nil || reflect.ValueOf(podsGetter).IsNil() {
+ 		return 0, fmt.Errorf("unexpected: podsGetter is nil. Cannot estimate grace period seconds for pods")
+ 	}
+-	items, err := podsGetter.Pods(ns).List(ctx, metav1.ListOptions{})
++	items, err := podsGetter.Pods().Cluster(clusterName.Path()).Namespace(ns).List(ctx, metav1.ListOptions{})
+ 	if err != nil {
+ 		return 0, err
+ 	}
+diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter_test.go b/pkg/controller/namespace/deletion/namespaced_resources_deleter_test.go
+--- a/pkg/controller/namespace/deletion/namespaced_resources_deleter_test.go
++++ b/pkg/controller/namespace/deletion/namespaced_resources_deleter_test.go
+@@ -26,6 +26,7 @@ import (
+ 	"sync"
+ 	"testing"
+ 
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	v1 "k8s.io/api/core/v1"
+ 	"k8s.io/apimachinery/pkg/api/errors"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+@@ -199,12 +200,12 @@ func testSyncNamespaceThatIsTerminating(t *testing.T, versions *metav1.APIVersio
+ 				t.Fatal(err)
+ 			}
+ 
+-			fn := func() ([]*metav1.APIResourceList, error) {
++			fn := func(clusterName logicalcluster.Name) ([]*metav1.APIResourceList, error) {
+ 				return resources, testInput.gvrError
+ 			}
+ 			_, ctx := ktesting.NewTestContext(t)
+ 			d := NewNamespacedResourcesDeleter(ctx, mockClient.CoreV1().Namespaces(), metadataClient, mockClient.CoreV1(), fn, v1.FinalizerKubernetes)
+-			if err := d.Delete(ctx, testInput.testNamespace.Name); !matchErrors(err, testInput.expectErrorOnDelete) {
++			if err := d.Delete(ctx, logicalcluster.New(""), testInput.testNamespace.Name); !matchErrors(err, testInput.expectErrorOnDelete) {
+ 				t.Errorf("expected error %q when syncing namespace, got %q, %v", testInput.expectErrorOnDelete, err, testInput.expectErrorOnDelete == err)
+ 			}
+ 
+@@ -297,13 +298,13 @@ func TestSyncNamespaceThatIsActive(t *testing.T) {
+ 			Phase: v1.NamespaceActive,
+ 		},
+ 	}
+-	fn := func() ([]*metav1.APIResourceList, error) {
++	fn := func(clusterName logicalcluster.Name) ([]*metav1.APIResourceList, error) {
+ 		return testResources(), nil
+ 	}
+ 	_, ctx := ktesting.NewTestContext(t)
+ 	d := NewNamespacedResourcesDeleter(ctx, mockClient.CoreV1().Namespaces(), nil, mockClient.CoreV1(),
+ 		fn, v1.FinalizerKubernetes)
+-	err := d.Delete(ctx, testNamespace.Name)
++	err := d.Delete(ctx, logicalcluster.New(""), testNamespace.Name)
+ 	if err != nil {
+ 		t.Errorf("Unexpected error when synching namespace %v", err)
+ 	}
+@@ -427,7 +428,7 @@ func TestDeleteEncounters404(t *testing.T) {
+ 	mockMetadataClient.PrependReactor("delete-collection", "flakes", ns1FlakesNotFound)
+ 	mockMetadataClient.PrependReactor("list", "flakes", ns1FlakesNotFound)
+ 
+-	resourcesFn := func() ([]*metav1.APIResourceList, error) {
++	resourcesFn := func(clusterName logicalcluster.Name) ([]*metav1.APIResourceList, error) {
+ 		return []*metav1.APIResourceList{{
+ 			GroupVersion: "example.com/v1",
+ 			APIResources: []metav1.APIResource{{Name: "flakes", Namespaced: true, Kind: "Flake", Verbs: []string{"get", "list", "delete", "deletecollection", "create", "update"}}},
+@@ -438,7 +439,7 @@ func TestDeleteEncounters404(t *testing.T) {
+ 
+ 	// Delete ns1 and get NotFound errors for the flakes resource
+ 	mockMetadataClient.ClearActions()
+-	if err := d.Delete(ctx, ns1.Name); err != nil {
++	if err := d.Delete(ctx, logicalcluster.New(""), ns1.Name); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	if len(mockMetadataClient.Actions()) != 3 ||
+@@ -453,7 +454,7 @@ func TestDeleteEncounters404(t *testing.T) {
+ 
+ 	// Delete ns2
+ 	mockMetadataClient.ClearActions()
+-	if err := d.Delete(ctx, ns2.Name); err != nil {
++	if err := d.Delete(ctx, logicalcluster.New(""), ns2.Name); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	if len(mockMetadataClient.Actions()) != 2 ||
+diff --git a/pkg/controller/namespace/namespace_controller.go b/pkg/controller/namespace/namespace_controller.go
+--- a/pkg/controller/namespace/namespace_controller.go
++++ b/pkg/controller/namespace/namespace_controller.go
+@@ -21,6 +21,12 @@ import (
+ 	"sync"
+ 	"time"
+ 
++	kcpcache "github.com/kcp-dev/apimachinery/v2/pkg/cache"
++	kcpcorev1informers "github.com/kcp-dev/client-go/informers/core/v1"
++	kcpkubernetesclientset "github.com/kcp-dev/client-go/kubernetes"
++	kcpcorev1listers "github.com/kcp-dev/client-go/listers/core/v1"
++	kcpmetadata "github.com/kcp-dev/client-go/metadata"
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	"golang.org/x/time/rate"
+ 
+ 	v1 "k8s.io/api/core/v1"
+@@ -28,13 +34,8 @@ import (
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+ 	"k8s.io/apimachinery/pkg/util/wait"
+-	coreinformers "k8s.io/client-go/informers/core/v1"
+-	clientset "k8s.io/client-go/kubernetes"
+-	corelisters "k8s.io/client-go/listers/core/v1"
+-	"k8s.io/client-go/metadata"
+ 	"k8s.io/client-go/tools/cache"
+ 	"k8s.io/client-go/util/workqueue"
+-	"k8s.io/kubernetes/pkg/controller"
+ 	"k8s.io/kubernetes/pkg/controller/namespace/deletion"
+ 
+ 	"k8s.io/klog/v2"
+@@ -53,7 +54,7 @@ const (
+ // NamespaceController is responsible for performing actions dependent upon a namespace phase
+ type NamespaceController struct {
+ 	// lister that can list namespaces from a shared cache
+-	lister corelisters.NamespaceLister
++	lister kcpcorev1listers.NamespaceClusterLister
+ 	// returns true when the namespace cache is ready
+ 	listerSynced cache.InformerSynced
+ 	// namespaces that have been queued up for processing by workers
+@@ -65,10 +66,10 @@ type NamespaceController struct {
+ // NewNamespaceController creates a new NamespaceController
+ func NewNamespaceController(
+ 	ctx context.Context,
+-	kubeClient clientset.Interface,
+-	metadataClient metadata.Interface,
+-	discoverResourcesFn func() ([]*metav1.APIResourceList, error),
+-	namespaceInformer coreinformers.NamespaceInformer,
++	kubeClient kcpkubernetesclientset.ClusterInterface,
++	metadataClient kcpmetadata.ClusterInterface,
++	discoverResourcesFn func(clusterName logicalcluster.Path) ([]*metav1.APIResourceList, error),
++	namespaceInformer kcpcorev1informers.NamespaceClusterInformer,
+ 	resyncPeriod time.Duration,
+ 	finalizerToken v1.FinalizerName) *NamespaceController {
+ 
+@@ -118,7 +119,7 @@ func nsControllerRateLimiter() workqueue.TypedRateLimiter[string] {
+ // enqueueNamespace adds an object to the controller work queue
+ // obj could be an *v1.Namespace, or a DeletionFinalStateUnknown item.
+ func (nm *NamespaceController) enqueueNamespace(ctx context.Context, obj interface{}) {
+-	key, err := controller.KeyFunc(obj)
++	key, err := kcpcache.MetaClusterNamespaceKeyFunc(obj)
+ 	if err != nil {
+ 		utilruntime.HandleErrorWithContext(ctx, err, "Couldn't get key for object", "object", obj)
+ 		return
+@@ -182,7 +183,13 @@ func (nm *NamespaceController) syncNamespaceFromKey(ctx context.Context, key str
+ 		logger.V(4).Info("Finished syncing namespace", "namespace", key, "duration", time.Since(startTime))
+ 	}()
+ 
+-	namespace, err := nm.lister.Get(key)
++	clusterName, _, namespaceName, err := kcpcache.SplitMetaClusterNamespaceKey(key)
++	if err != nil {
++		utilruntime.HandleError(err)
++		return err
++	}
++
++	namespace, err := nm.lister.Cluster(clusterName).Get(namespaceName)
+ 	if errors.IsNotFound(err) {
+ 		logger.Info("Namespace has been deleted", "namespace", key)
+ 		return nil
+@@ -191,7 +198,7 @@ func (nm *NamespaceController) syncNamespaceFromKey(ctx context.Context, key str
+ 		utilruntime.HandleErrorWithContext(ctx, err, "Unable to retrieve namespace from store", "namespace", key)
+ 		return err
+ 	}
+-	return nm.namespacedResourcesDeleter.Delete(ctx, namespace.Name)
++	return nm.namespacedResourcesDeleter.Delete(ctx, clusterName, namespace.Name)
+ }
+ 
+ // Run starts observing the system with the specified number of workers.
+diff --git a/pkg/controller/resourcequota/resource_quota_controller.go b/pkg/controller/resourcequota/resource_quota_controller.go
+--- a/pkg/controller/resourcequota/resource_quota_controller.go
++++ b/pkg/controller/resourcequota/resource_quota_controller.go
+@@ -20,6 +20,7 @@ import (
+ 	"context"
+ 	"fmt"
+ 	"reflect"
++	"strconv"
+ 	"sync"
+ 	"time"
+ 
+@@ -363,6 +364,11 @@ func (rq *Controller) syncResourceQuotaFromKey(ctx context.Context, key string)
+ 	return rq.syncResourceQuota(ctx, resourceQuota)
+ }
+ 
++const (
++	kcpClusterScopedQuotaNamespace                 = "admin"
++	kcpExperimentalClusterScopedQuotaAnnotationKey = "experimental.quota.kcp.io/cluster-scoped"
++)
++
+ // syncResourceQuota runs a complete sync of resource quota status across all known kinds
+ func (rq *Controller) syncResourceQuota(ctx context.Context, resourceQuota *v1.ResourceQuota) (err error) {
+ 	// quota is dirty if any part of spec hard limits differs from the status hard limits
+@@ -381,7 +387,15 @@ func (rq *Controller) syncResourceQuota(ctx context.Context, resourceQuota *v1.R
+ 
+ 	var errs []error
+ 
+-	newUsage, err := quota.CalculateUsage(resourceQuota.Namespace, resourceQuota.Spec.Scopes, hardLimits, rq.registry, resourceQuota.Spec.ScopeSelector)
++	// kcp edits for cluster scoped quota
++	clusterScoped, _ := strconv.ParseBool(resourceQuota.Annotations[kcpExperimentalClusterScopedQuotaAnnotationKey])
++
++	namespaceToCheck := resourceQuota.Namespace
++	if namespaceToCheck == kcpClusterScopedQuotaNamespace && clusterScoped {
++		namespaceToCheck = ""
++	}
++
++	newUsage, err := quota.CalculateUsage(namespaceToCheck, resourceQuota.Spec.Scopes, hardLimits, rq.registry, resourceQuota.Spec.ScopeSelector)
+ 	if err != nil {
+ 		// if err is non-nil, remember it to return, but continue updating status with any resources in newUsage
+ 		errs = append(errs, err)
+diff --git a/pkg/controller/resourcequota/resource_quota_monitor.go b/pkg/controller/resourcequota/resource_quota_monitor.go
+--- a/pkg/controller/resourcequota/resource_quota_monitor.go
++++ b/pkg/controller/resourcequota/resource_quota_monitor.go
+@@ -238,6 +238,7 @@ func (qm *QuotaMonitor) SyncMonitors(ctx context.Context, resources map[schema.G
+ 	for _, monitor := range toRemove {
+ 		if monitor.stopCh != nil {
+ 			close(monitor.stopCh)
++			monitor.stopCh = nil
+ 		}
+ 	}
+ 
+@@ -344,6 +345,7 @@ func (qm *QuotaMonitor) Run(ctx context.Context) {
+ 		if monitor.stopCh != nil {
+ 			stopped++
+ 			close(monitor.stopCh)
++			monitor.stopCh = nil
+ 		}
+ 	}
+ 	qm.monitors = nil
+diff --git a/pkg/controller/serviceaccount/serviceaccounts_controller.go b/pkg/controller/serviceaccount/serviceaccounts_controller.go
+--- a/pkg/controller/serviceaccount/serviceaccounts_controller.go
++++ b/pkg/controller/serviceaccount/serviceaccounts_controller.go
+@@ -22,15 +22,16 @@ import (
+ 	"sync"
+ 	"time"
+ 
++	kcpcache "github.com/kcp-dev/apimachinery/v2/pkg/cache"
++	kcpcorev1informers "github.com/kcp-dev/client-go/informers/core/v1"
++	kcpkubernetesclientset "github.com/kcp-dev/client-go/kubernetes"
++	kcpcorev1listers "github.com/kcp-dev/client-go/listers/core/v1"
+ 	v1 "k8s.io/api/core/v1"
+ 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+ 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+ 	"k8s.io/apimachinery/pkg/util/wait"
+-	coreinformers "k8s.io/client-go/informers/core/v1"
+-	clientset "k8s.io/client-go/kubernetes"
+-	corelisters "k8s.io/client-go/listers/core/v1"
+ 	"k8s.io/client-go/tools/cache"
+ 	"k8s.io/client-go/util/workqueue"
+ 	"k8s.io/klog/v2"
+@@ -62,7 +63,7 @@ func DefaultServiceAccountsControllerOptions() ServiceAccountsControllerOptions
+ }
+ 
+ // NewServiceAccountsController returns a new *ServiceAccountsController.
+-func NewServiceAccountsController(logger klog.Logger, saInformer coreinformers.ServiceAccountInformer, nsInformer coreinformers.NamespaceInformer, cl clientset.Interface, options ServiceAccountsControllerOptions) (*ServiceAccountsController, error) {
++func NewServiceAccountsController(logger klog.Logger, saInformer kcpcorev1informers.ServiceAccountClusterInformer, nsInformer kcpcorev1informers.NamespaceClusterInformer, cl kcpkubernetesclientset.ClusterInterface, options ServiceAccountsControllerOptions) (*ServiceAccountsController, error) {
+ 	e := &ServiceAccountsController{
+ 		client:                  cl,
+ 		serviceAccountsToEnsure: options.ServiceAccounts,
+@@ -94,16 +95,16 @@ func NewServiceAccountsController(logger klog.Logger, saInformer coreinformers.S
+ 
+ // ServiceAccountsController manages ServiceAccount objects inside Namespaces
+ type ServiceAccountsController struct {
+-	client                  clientset.Interface
++	client                  kcpkubernetesclientset.ClusterInterface
+ 	serviceAccountsToEnsure []v1.ServiceAccount
+ 
+ 	// To allow injection for testing.
+ 	syncHandler func(ctx context.Context, key string) error
+ 
+-	saLister       corelisters.ServiceAccountLister
++	saLister       kcpcorev1listers.ServiceAccountClusterLister
+ 	saListerSynced cache.InformerSynced
+ 
+-	nsLister       corelisters.NamespaceLister
++	nsLister       kcpcorev1listers.NamespaceClusterLister
+ 	nsListerSynced cache.InformerSynced
+ 
+ 	queue workqueue.TypedRateLimitingInterface[string]
+@@ -150,19 +151,19 @@ func (c *ServiceAccountsController) serviceAccountDeleted(logger klog.Logger, ob
+ 			return
+ 		}
+ 	}
+-	c.queue.Add(sa.Namespace)
++	c.enqueueNamespace(sa)
+ }
+ 
+ // namespaceAdded reacts to a Namespace creation by creating a default ServiceAccount object
+ func (c *ServiceAccountsController) namespaceAdded(obj interface{}) {
+ 	namespace := obj.(*v1.Namespace)
+-	c.queue.Add(namespace.Name)
++	c.enqueueNamespace(namespace)
+ }
+ 
+ // namespaceUpdated reacts to a Namespace update (or re-list) by creating a default ServiceAccount in the namespace if needed
+ func (c *ServiceAccountsController) namespaceUpdated(oldObj interface{}, newObj interface{}) {
+ 	newNamespace := newObj.(*v1.Namespace)
+-	c.queue.Add(newNamespace.Name)
++	c.enqueueNamespace(newNamespace)
+ }
+ 
+ func (c *ServiceAccountsController) runWorker(ctx context.Context) {
+@@ -195,7 +196,13 @@ func (c *ServiceAccountsController) syncNamespace(ctx context.Context, key strin
+ 		klog.FromContext(ctx).V(4).Info("Finished syncing namespace", "namespace", key, "duration", time.Since(startTime))
+ 	}()
+ 
+-	ns, err := c.nsLister.Get(key)
++	clusterName, _, namespaceName, err := kcpcache.SplitMetaClusterNamespaceKey(key)
++	if err != nil {
++		utilruntime.HandleError(err)
++		return err
++	}
++
++	ns, err := c.nsLister.Cluster(clusterName).Get(namespaceName)
+ 	if apierrors.IsNotFound(err) {
+ 		return nil
+ 	}
+@@ -209,7 +216,7 @@ func (c *ServiceAccountsController) syncNamespace(ctx context.Context, key strin
+ 
+ 	createFailures := []error{}
+ 	for _, sa := range c.serviceAccountsToEnsure {
+-		switch _, err := c.saLister.ServiceAccounts(ns.Name).Get(sa.Name); {
++		switch _, err := c.saLister.Cluster(clusterName).ServiceAccounts(ns.Name).Get(sa.Name); {
+ 		case err == nil:
+ 			continue
+ 		case apierrors.IsNotFound(err):
+@@ -220,7 +227,7 @@ func (c *ServiceAccountsController) syncNamespace(ctx context.Context, key strin
+ 		// TODO eliminate this once the fake client can handle creation without NS
+ 		sa.Namespace = ns.Name
+ 
+-		if _, err := c.client.CoreV1().ServiceAccounts(ns.Name).Create(ctx, &sa, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
++		if _, err := c.client.Cluster(clusterName.Path()).CoreV1().ServiceAccounts(ns.Name).Create(ctx, &sa, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+ 			// we can safely ignore terminating namespace errors
+ 			if !apierrors.HasStatusCause(err, v1.NamespaceTerminatingCause) {
+ 				createFailures = append(createFailures, err)
+@@ -230,3 +237,12 @@ func (c *ServiceAccountsController) syncNamespace(ctx context.Context, key strin
+ 
+ 	return utilerrors.Flatten(utilerrors.NewAggregate(createFailures))
+ }
++
++func (c *ServiceAccountsController) enqueueNamespace(obj metav1.Object) {
++	key, err := kcpcache.MetaClusterNamespaceKeyFunc(obj)
++	if err != nil {
++		utilruntime.HandleError(err)
++	}
++
++	c.queue.Add(key)
++}
+diff --git a/pkg/controller/serviceaccount/tokengetter.go b/pkg/controller/serviceaccount/tokengetter.go
+--- a/pkg/controller/serviceaccount/tokengetter.go
++++ b/pkg/controller/serviceaccount/tokengetter.go
+@@ -14,11 +14,17 @@ See the License for the specific language governing permissions and
+ limitations under the License.
+ */
+ 
++// +kcp-code-generator:skip
++
+ package serviceaccount
+ 
+ import (
+ 	"context"
+ 
++	kcpkubernetesclientset "github.com/kcp-dev/client-go/kubernetes"
++	kcpcorev1listers "github.com/kcp-dev/client-go/listers/core/v1"
++	"github.com/kcp-dev/logicalcluster/v3"
++
+ 	v1 "k8s.io/api/core/v1"
+ 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+@@ -27,6 +33,29 @@ import (
+ 	"k8s.io/kubernetes/pkg/serviceaccount"
+ )
+ 
++func NewClusterGetterFromClient(client kcpkubernetesclientset.ClusterInterface, secretLister kcpcorev1listers.SecretClusterLister, serviceAccountLister kcpcorev1listers.ServiceAccountClusterLister /*podLister kcpcorev1listers.PodClusterLister*/) serviceaccount.ServiceAccountTokenClusterGetter {
++	return &serviceAccountTokenClusterGetter{
++		client:               client,
++		secretLister:         secretLister,
++		serviceAccountLister: serviceAccountLister,
++	}
++}
++
++type serviceAccountTokenClusterGetter struct {
++	client               kcpkubernetesclientset.ClusterInterface
++	secretLister         kcpcorev1listers.SecretClusterLister
++	serviceAccountLister kcpcorev1listers.ServiceAccountClusterLister
++	podLister            kcpcorev1listers.PodClusterLister
++}
++
++func (s *serviceAccountTokenClusterGetter) Cluster(name logicalcluster.Name) serviceaccount.ServiceAccountTokenGetter {
++	return NewGetterFromClient(
++		s.client.Cluster(name.Path()),
++		s.secretLister.Cluster(name),
++		s.serviceAccountLister.Cluster(name),
++	)
++}
++
+ // clientGetter implements ServiceAccountTokenGetter using a clientset.Interface
+ type clientGetter struct {
+ 	client               clientset.Interface
+@@ -40,8 +69,12 @@ type clientGetter struct {
+ // uses the specified client to retrieve service accounts, pods, secrets and nodes.
+ // The client should NOT authenticate using a service account token
+ // the returned getter will be used to retrieve, or recursion will result.
+-func NewGetterFromClient(c clientset.Interface, secretLister v1listers.SecretLister, serviceAccountLister v1listers.ServiceAccountLister, podLister v1listers.PodLister, nodeLister v1listers.NodeLister) serviceaccount.ServiceAccountTokenGetter {
+-	return clientGetter{c, secretLister, serviceAccountLister, podLister, nodeLister}
++func NewGetterFromClient(c clientset.Interface, secretLister v1listers.SecretLister, serviceAccountLister v1listers.ServiceAccountLister) serviceaccount.ServiceAccountTokenGetter {
++	return clientGetter{
++		client:               c,
++		secretLister:         secretLister,
++		serviceAccountLister: serviceAccountLister,
++	}
+ }
+ 
+ func (c clientGetter) GetServiceAccount(ctx context.Context, namespace, name string) (*v1.ServiceAccount, error) {
+@@ -52,8 +85,8 @@ func (c clientGetter) GetServiceAccount(ctx context.Context, namespace, name str
+ }
+ 
+ func (c clientGetter) GetPod(ctx context.Context, namespace, name string) (*v1.Pod, error) {
+-	if pod, err := c.podLister.Pods(namespace).Get(name); err == nil {
+-		return pod, nil
++	if c.podLister == nil {
++		return nil, apierrors.NewNotFound(v1.Resource("pods"), name)
+ 	}
+ 	return c.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+ }
+diff --git a/pkg/controller/serviceaccount/tokens_controller.go b/pkg/controller/serviceaccount/tokens_controller.go
+--- a/pkg/controller/serviceaccount/tokens_controller.go
++++ b/pkg/controller/serviceaccount/tokens_controller.go
+@@ -23,6 +23,10 @@ import (
+ 	"sync"
+ 	"time"
+ 
++	kcpcorev1informers "github.com/kcp-dev/client-go/informers/core/v1"
++	kcpkubernetesclientset "github.com/kcp-dev/client-go/kubernetes"
++	kcpcorev1listers "github.com/kcp-dev/client-go/listers/core/v1"
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	v1 "k8s.io/api/core/v1"
+ 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+@@ -33,13 +37,11 @@ import (
+ 	"k8s.io/apimachinery/pkg/util/sets"
+ 	"k8s.io/apimachinery/pkg/util/wait"
+ 	apiserverserviceaccount "k8s.io/apiserver/pkg/authentication/serviceaccount"
+-	informers "k8s.io/client-go/informers/core/v1"
+-	clientset "k8s.io/client-go/kubernetes"
+-	listersv1 "k8s.io/client-go/listers/core/v1"
+ 	"k8s.io/client-go/tools/cache"
+ 	clientretry "k8s.io/client-go/util/retry"
+ 	"k8s.io/client-go/util/workqueue"
+ 	"k8s.io/klog/v2"
++	"k8s.io/kubernetes/pkg/registry/core/secret"
+ 	"k8s.io/kubernetes/pkg/serviceaccount"
+ )
+ 
+@@ -71,7 +73,7 @@ type TokensControllerOptions struct {
+ }
+ 
+ // NewTokensController returns a new *TokensController.
+-func NewTokensController(logger klog.Logger, serviceAccounts informers.ServiceAccountInformer, secrets informers.SecretInformer, cl clientset.Interface, options TokensControllerOptions) (*TokensController, error) {
++func NewTokensController(logger klog.Logger, serviceAccounts kcpcorev1informers.ServiceAccountClusterInformer, secrets kcpcorev1informers.SecretClusterInformer, cl kcpkubernetesclientset.ClusterInterface, options TokensControllerOptions) (*TokensController, error) {
+ 	maxRetries := options.MaxRetries
+ 	if maxRetries == 0 {
+ 		maxRetries = 10
+@@ -135,13 +137,13 @@ func NewTokensController(logger klog.Logger, serviceAccounts informers.ServiceAc
+ 
+ // TokensController manages ServiceAccountToken secrets for ServiceAccount objects
+ type TokensController struct {
+-	client clientset.Interface
++	client kcpkubernetesclientset.ClusterInterface
+ 	token  serviceaccount.TokenGenerator
+ 
+ 	rootCA []byte
+ 
+-	serviceAccounts listersv1.ServiceAccountLister
+-	secrets         listersv1.SecretLister
++	serviceAccounts kcpcorev1listers.ServiceAccountClusterLister
++	secrets         kcpcorev1listers.SecretClusterLister
+ 
+ 	// Since we join two objects, we'll watch both of them with controllers.
+ 	serviceAccountSynced cache.InformerSynced
+@@ -256,7 +258,7 @@ func (e *TokensController) syncServiceAccount(ctx context.Context) {
+ 		return
+ 	}
+ 
+-	sa, err := e.getServiceAccount(ctx, saInfo.namespace, saInfo.name, saInfo.uid, false)
++	sa, err := e.getServiceAccount(ctx, saInfo.clusterName, saInfo.namespace, saInfo.name, saInfo.uid, false)
+ 	switch {
+ 	case err != nil:
+ 		logger.Error(err, "Getting service account")
+@@ -264,7 +266,7 @@ func (e *TokensController) syncServiceAccount(ctx context.Context) {
+ 	case sa == nil:
+ 		// service account no longer exists, so delete related tokens
+ 		logger.V(4).Info("Service account deleted, removing tokens", "namespace", saInfo.namespace, "serviceaccount", saInfo.name)
+-		sa = &v1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Namespace: saInfo.namespace, Name: saInfo.name, UID: saInfo.uid}}
++		sa = &v1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{logicalcluster.AnnotationKey: saInfo.clusterName.String()}, Namespace: saInfo.namespace, Name: saInfo.name, UID: saInfo.uid}}
+ 		retry, err = e.deleteTokens(ctx, sa)
+ 		if err != nil {
+ 			logger.Error(err, "Error deleting serviceaccount tokens", "namespace", saInfo.namespace, "serviceaccount", saInfo.name)
+@@ -292,24 +294,24 @@ func (e *TokensController) syncSecret(ctx context.Context) {
+ 		return
+ 	}
+ 
+-	secret, err := e.getSecret(ctx, secretInfo.namespace, secretInfo.name, secretInfo.uid)
++	secret, err := e.getSecret(ctx, secretInfo.clusterName, secretInfo.namespace, secretInfo.name, secretInfo.uid)
+ 	switch {
+ 	case err != nil:
+ 		logger.Error(err, "Getting secret")
+ 		retry = true
+ 	case secret == nil:
+ 		// If the service account exists
+-		if sa, saErr := e.getServiceAccount(ctx, secretInfo.namespace, secretInfo.saName, secretInfo.saUID, false); saErr == nil && sa != nil {
++		if sa, saErr := e.getServiceAccount(ctx, secretInfo.clusterName, secretInfo.namespace, secretInfo.saName, secretInfo.saUID, false); saErr == nil && sa != nil {
+ 			// secret no longer exists, so delete references to this secret from the service account
+ 			if err := clientretry.RetryOnConflict(RemoveTokenBackoff, func() error {
+-				return e.removeSecretReference(ctx, secretInfo.namespace, secretInfo.saName, secretInfo.saUID, secretInfo.name)
++				return e.removeSecretReference(ctx, secretInfo.clusterName, secretInfo.namespace, secretInfo.saName, secretInfo.saUID, secretInfo.name)
+ 			}); err != nil {
+ 				logger.Error(err, "Removing secret reference")
+ 			}
+ 		}
+ 	default:
+ 		// Ensure service account exists
+-		sa, saErr := e.getServiceAccount(ctx, secretInfo.namespace, secretInfo.saName, secretInfo.saUID, true)
++		sa, saErr := e.getServiceAccount(ctx, secretInfo.clusterName, secretInfo.namespace, secretInfo.saName, secretInfo.saUID, true)
+ 		switch {
+ 		case saErr != nil:
+ 			logger.Error(saErr, "Getting service account")
+@@ -317,14 +319,14 @@ func (e *TokensController) syncSecret(ctx context.Context) {
+ 		case sa == nil:
+ 			// Delete token
+ 			logger.V(4).Info("Service account does not exist, deleting token", "secret", klog.KRef(secretInfo.namespace, secretInfo.name))
+-			if retriable, err := e.deleteToken(ctx, secretInfo.namespace, secretInfo.name, secretInfo.uid); err != nil {
+-				logger.Error(err, "Deleting serviceaccount token", "secret", klog.KRef(secretInfo.namespace, secretInfo.name), "serviceAccount", klog.KRef(secretInfo.namespace, secretInfo.saName))
++			if retriable, err := e.deleteToken(ctx, secretInfo.clusterName, secretInfo.namespace, secretInfo.name, secretInfo.uid); err != nil {
++				logger.Error(err, "Deleting serviceaccount token", "secret", klog.KRef(secretInfo.namespace, secretInfo.name), "serviceAccount", klog.KRef(secretInfo.namespace, secretInfo.saName), "cluster", secretInfo.clusterName)
+ 				retry = retriable
+ 			}
+ 		default:
+ 			// Update token if needed
+ 			if retriable, err := e.generateTokenIfNeeded(ctx, sa, secret); err != nil {
+-				logger.Error(err, "Populating serviceaccount token", "secret", klog.KRef(secretInfo.namespace, secretInfo.name), "serviceAccount", klog.KRef(secretInfo.namespace, secretInfo.saName))
++				logger.Error(err, "Populating serviceaccount token", "secret", klog.KRef(secretInfo.namespace, secretInfo.name), "serviceAccount", klog.KRef(secretInfo.namespace, secretInfo.saName), "cluster", secretInfo.clusterName)
+ 				retry = retriable
+ 			}
+ 		}
+@@ -340,7 +342,7 @@ func (e *TokensController) deleteTokens(ctx context.Context, serviceAccount *v1.
+ 	retry := false
+ 	errs := []error{}
+ 	for _, token := range tokens {
+-		r, err := e.deleteToken(ctx, token.Namespace, token.Name, token.UID)
++		r, err := e.deleteToken(ctx, logicalcluster.From(token), token.Namespace, token.Name, token.UID)
+ 		if err != nil {
+ 			errs = append(errs, err)
+ 		}
+@@ -351,12 +353,12 @@ func (e *TokensController) deleteTokens(ctx context.Context, serviceAccount *v1.
+ 	return retry, utilerrors.NewAggregate(errs)
+ }
+ 
+-func (e *TokensController) deleteToken(ctx context.Context, ns, name string, uid types.UID) ( /*retry*/ bool, error) {
++func (e *TokensController) deleteToken(ctx context.Context, clusterName logicalcluster.Name, ns, name string, uid types.UID) ( /*retry*/ bool, error) {
+ 	var opts metav1.DeleteOptions
+ 	if len(uid) > 0 {
+ 		opts.Preconditions = &metav1.Preconditions{UID: &uid}
+ 	}
+-	err := e.client.CoreV1().Secrets(ns).Delete(ctx, name, opts)
++	err := e.client.Cluster(clusterName.Path()).CoreV1().Secrets(ns).Delete(ctx, name, opts)
+ 	// NotFound doesn't need a retry (it's already been deleted)
+ 	// Conflict doesn't need a retry (the UID precondition failed)
+ 	if err == nil || apierrors.IsNotFound(err) || apierrors.IsConflict(err) {
+@@ -366,6 +368,149 @@ func (e *TokensController) deleteToken(ctx context.Context, ns, name string, uid
+ 	return true, err
+ }
+ 
++// ensureReferencedToken makes sure at least one ServiceAccountToken secret exists, and is included in the serviceAccount's Secrets list
++func (e *TokensController) ensureReferencedToken(serviceAccount *v1.ServiceAccount) ( /* retry */ bool, error) {
++	if hasToken, err := e.hasReferencedToken(serviceAccount); err != nil {
++		// Don't retry cache lookup errors
++		return false, err
++	} else if hasToken {
++		// A service account token already exists, and is referenced, short-circuit
++		return false, nil
++	}
++
++	clusterName := logicalcluster.From(serviceAccount)
++
++	// We don't want to update the cache's copy of the service account
++	// so add the secret to a freshly retrieved copy of the service account
++	serviceAccounts := e.client.Cluster(clusterName.Path()).CoreV1().ServiceAccounts(serviceAccount.Namespace)
++	liveServiceAccount, err := serviceAccounts.Get(context.TODO(), serviceAccount.Name, metav1.GetOptions{})
++	if err != nil {
++		// Retry if we cannot fetch the live service account (for a NotFound error, either the live lookup or our cache are stale)
++		return true, err
++	}
++	if liveServiceAccount.ResourceVersion != serviceAccount.ResourceVersion {
++		// Retry if our liveServiceAccount doesn't match our cache's resourceVersion (either the live lookup or our cache are stale)
++		klog.V(4).Infof("liveServiceAccount.ResourceVersion (%s) does not match cache (%s), retrying", liveServiceAccount.ResourceVersion, serviceAccount.ResourceVersion)
++		return true, nil
++	}
++
++	// Build the secret
++	secret := &v1.Secret{
++		ObjectMeta: metav1.ObjectMeta{
++			Name:      secret.Strategy.GenerateName(fmt.Sprintf("%s-token-", serviceAccount.Name)),
++			Namespace: serviceAccount.Namespace,
++			Annotations: map[string]string{
++				v1.ServiceAccountNameKey: serviceAccount.Name,
++				v1.ServiceAccountUIDKey:  string(serviceAccount.UID),
++			},
++		},
++		Type: v1.SecretTypeServiceAccountToken,
++		Data: map[string][]byte{},
++	}
++
++	// Generate the token
++	c, pc := serviceaccount.LegacyClaims(*serviceAccount, *secret)
++	// TODO: need to plumb context if using external signer ever becomes a posibility.
++	token, err := e.token.GenerateToken(context.TODO(), c, pc)
++	if err != nil {
++		// retriable error
++		return true, err
++	}
++	secret.Data[v1.ServiceAccountTokenKey] = []byte(token)
++	secret.Data[v1.ServiceAccountNamespaceKey] = []byte(serviceAccount.Namespace)
++	if e.rootCA != nil && len(e.rootCA) > 0 {
++		secret.Data[v1.ServiceAccountRootCAKey] = e.rootCA
++	}
++
++	// Save the secret
++	createdToken, err := e.client.Cluster(clusterName.Path()).CoreV1().Secrets(serviceAccount.Namespace).Create(context.TODO(), secret, metav1.CreateOptions{})
++	if err != nil {
++		// if the namespace is being terminated, create will fail no matter what
++		if apierrors.HasStatusCause(err, v1.NamespaceTerminatingCause) {
++			return false, err
++		}
++		// retriable error
++		return true, err
++	}
++
++	// Try to add a reference to the newly created token to the service account
++	addedReference := false
++	err = clientretry.RetryOnConflict(clientretry.DefaultRetry, func() error {
++		// refresh liveServiceAccount on every retry
++		defer func() { liveServiceAccount = nil }()
++
++		// fetch the live service account if needed, and verify the UID matches and that we still need a token
++		if liveServiceAccount == nil {
++			liveServiceAccount, err = serviceAccounts.Get(context.TODO(), serviceAccount.Name, metav1.GetOptions{})
++			if err != nil {
++				return err
++			}
++
++			if liveServiceAccount.UID != serviceAccount.UID {
++				// If we don't have the same service account, stop trying to add a reference to the token made for the old service account.
++				return nil
++			}
++
++			if hasToken, err := e.hasReferencedToken(liveServiceAccount); err != nil {
++				// Don't retry cache lookup errors
++				return nil
++			} else if hasToken {
++				// A service account token already exists, and is referenced, short-circuit
++				return nil
++			}
++		}
++
++		// Try to add a reference to the token
++		liveServiceAccount.Secrets = append(liveServiceAccount.Secrets, v1.ObjectReference{Name: secret.Name})
++		if _, err := serviceAccounts.Update(context.TODO(), liveServiceAccount, metav1.UpdateOptions{}); err != nil {
++			return err
++		}
++
++		addedReference = true
++		return nil
++	})
++
++	if !addedReference {
++		// we weren't able to use the token, try to clean it up.
++		klog.V(2).Infof("deleting secret %s|%s/%s because reference couldn't be added (%v)", clusterName, secret.Namespace, secret.Name, err)
++		deleteOpts := metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &createdToken.UID}}
++		if err := e.client.Cluster(clusterName.Path()).CoreV1().Secrets(createdToken.Namespace).Delete(context.TODO(), createdToken.Name, deleteOpts); err != nil {
++			klog.Error(err) // if we fail, just log it
++		}
++	}
++
++	if err != nil {
++		if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
++			// if we got a Conflict error, the service account was updated by someone else, and we'll get an update notification later
++			// if we got a NotFound error, the service account no longer exists, and we don't need to create a token for it
++			return false, nil
++		}
++		// retry in all other cases
++		return true, err
++	}
++
++	// success!
++	return false, nil
++}
++
++// hasReferencedToken returns true if the serviceAccount references a service account token secret
++func (e *TokensController) hasReferencedToken(serviceAccount *v1.ServiceAccount) (bool, error) {
++	if len(serviceAccount.Secrets) == 0 {
++		return false, nil
++	}
++	allSecrets, err := e.listTokenSecrets(serviceAccount)
++	if err != nil {
++		return false, err
++	}
++	referencedSecrets := getSecretReferences(serviceAccount)
++	for _, secret := range allSecrets {
++		if referencedSecrets.Has(secret.Name) {
++			return true, nil
++		}
++	}
++	return false, nil
++}
++
+ func (e *TokensController) secretUpdateNeeded(secret *v1.Secret) (bool, bool, bool) {
+ 	caData := secret.Data[v1.ServiceAccountRootCAKey]
+ 	needsCA := len(e.rootCA) > 0 && !bytes.Equal(caData, e.rootCA)
+@@ -385,9 +530,11 @@ func (e *TokensController) generateTokenIfNeeded(ctx context.Context, serviceAcc
+ 		return false, nil
+ 	}
+ 
++	clusterName := logicalcluster.From(serviceAccount)
++
+ 	// We don't want to update the cache's copy of the secret
+ 	// so add the token to a freshly retrieved copy of the secret
+-	secrets := e.client.CoreV1().Secrets(cachedSecret.Namespace)
++	secrets := e.client.Cluster(clusterName.Path()).CoreV1().Secrets(cachedSecret.Namespace)
+ 	liveSecret, err := secrets.Get(ctx, cachedSecret.Name, metav1.GetOptions{})
+ 	if err != nil {
+ 		// Retry for any error other than a NotFound
+@@ -396,7 +543,7 @@ func (e *TokensController) generateTokenIfNeeded(ctx context.Context, serviceAcc
+ 	if liveSecret.ResourceVersion != cachedSecret.ResourceVersion {
+ 		// our view of the secret is not up to date
+ 		// we'll get notified of an update event later and get to try again
+-		klog.FromContext(ctx).V(2).Info("Secret is not up to date, skipping token population", "secret", klog.KRef(liveSecret.Namespace, liveSecret.Name))
++		klog.FromContext(ctx).V(2).Info("Secret is not up to date, skipping token population", "secret", klog.KRef(liveSecret.Namespace, liveSecret.Name), "cluster", clusterName)
+ 		return false, nil
+ 	}
+ 
+@@ -449,10 +596,10 @@ func (e *TokensController) generateTokenIfNeeded(ctx context.Context, serviceAcc
+ }
+ 
+ // removeSecretReference updates the given ServiceAccount to remove a reference to the given secretName if needed.
+-func (e *TokensController) removeSecretReference(ctx context.Context, saNamespace string, saName string, saUID types.UID, secretName string) error {
++func (e *TokensController) removeSecretReference(ctx context.Context, saClusterName logicalcluster.Name, saNamespace string, saName string, saUID types.UID, secretName string) error {
+ 	// We don't want to update the cache's copy of the service account
+ 	// so remove the secret from a freshly retrieved copy of the service account
+-	serviceAccounts := e.client.CoreV1().ServiceAccounts(saNamespace)
++	serviceAccounts := e.client.Cluster(saClusterName.Path()).CoreV1().ServiceAccounts(saNamespace)
+ 	serviceAccount, err := serviceAccounts.Get(ctx, saName, metav1.GetOptions{})
+ 	// Ignore NotFound errors when attempting to remove a reference
+ 	if apierrors.IsNotFound(err) {
+@@ -488,9 +635,9 @@ func (e *TokensController) removeSecretReference(ctx context.Context, saNamespac
+ 	return err
+ }
+ 
+-func (e *TokensController) getServiceAccount(ctx context.Context, ns string, name string, uid types.UID, fetchOnCacheMiss bool) (*v1.ServiceAccount, error) {
++func (e *TokensController) getServiceAccount(ctx context.Context, clusterName logicalcluster.Name, ns string, name string, uid types.UID, fetchOnCacheMiss bool) (*v1.ServiceAccount, error) {
+ 	// Look up in cache
+-	sa, err := e.serviceAccounts.ServiceAccounts(ns).Get(name)
++	sa, err := e.serviceAccounts.Cluster(clusterName).ServiceAccounts(ns).Get(name)
+ 	if err != nil && !apierrors.IsNotFound(err) {
+ 		return nil, err
+ 	}
+@@ -506,7 +653,7 @@ func (e *TokensController) getServiceAccount(ctx context.Context, ns string, nam
+ 	}
+ 
+ 	// Live lookup
+-	sa, err = e.client.CoreV1().ServiceAccounts(ns).Get(ctx, name, metav1.GetOptions{})
++	sa, err = e.client.Cluster(clusterName.Path()).CoreV1().ServiceAccounts(ns).Get(ctx, name, metav1.GetOptions{})
+ 	if apierrors.IsNotFound(err) {
+ 		return nil, nil
+ 	}
+@@ -520,9 +667,9 @@ func (e *TokensController) getServiceAccount(ctx context.Context, ns string, nam
+ 	return nil, nil
+ }
+ 
+-func (e *TokensController) getSecret(ctx context.Context, ns string, name string, uid types.UID) (*v1.Secret, error) {
++func (e *TokensController) getSecret(ctx context.Context, clusterName logicalcluster.Name, ns string, name string, uid types.UID) (*v1.Secret, error) {
+ 	// Look up in cache
+-	secret, err := e.secrets.Secrets(ns).Get(name)
++	secret, err := e.secrets.Cluster(clusterName).Secrets(ns).Get(name)
+ 	if err != nil {
+ 		if apierrors.IsNotFound(err) {
+ 			return nil, nil
+@@ -541,7 +688,7 @@ func (e *TokensController) getSecret(ctx context.Context, ns string, name string
+ // listTokenSecrets returns a list of all the ServiceAccountToken secrets that
+ // reference the given service account's name and uid
+ func (e *TokensController) listTokenSecrets(serviceAccount *v1.ServiceAccount) ([]*v1.Secret, error) {
+-	namespaceSecrets, err := e.secrets.Secrets(serviceAccount.Namespace).List(labels.Everything())
++	namespaceSecrets, err := e.secrets.Cluster(logicalcluster.From(serviceAccount)).Secrets(serviceAccount.Namespace).List(labels.Everything())
+ 	if err != nil {
+ 		return nil, err
+ 	}
+@@ -567,6 +714,8 @@ func getSecretReferences(serviceAccount *v1.ServiceAccount) sets.String {
+ // It contains enough information to look up the cached service account,
+ // or delete owned tokens if the service account no longer exists.
+ type serviceAccountQueueKey struct {
++	clusterName logicalcluster.Name // Required for kcp
++
+ 	namespace string
+ 	name      string
+ 	uid       types.UID
+@@ -574,6 +723,8 @@ type serviceAccountQueueKey struct {
+ 
+ func makeServiceAccountKey(sa *v1.ServiceAccount) serviceAccountQueueKey {
+ 	return serviceAccountQueueKey{
++		clusterName: logicalcluster.From(sa),
++
+ 		namespace: sa.Namespace,
+ 		name:      sa.Name,
+ 		uid:       sa.UID,
+@@ -592,6 +743,8 @@ func parseServiceAccountKey(key interface{}) (serviceAccountQueueKey, error) {
+ // It contains enough information to look up the cached service account,
+ // or delete the secret reference if the secret no longer exists.
+ type secretQueueKey struct {
++	clusterName logicalcluster.Name // Required for kcp
++
+ 	namespace string
+ 	name      string
+ 	uid       types.UID
+@@ -602,6 +755,8 @@ type secretQueueKey struct {
+ 
+ func makeSecretQueueKey(secret *v1.Secret) secretQueueKey {
+ 	return secretQueueKey{
++		clusterName: logicalcluster.From(secret), // Required for kcp
++
+ 		namespace: secret.Namespace,
+ 		name:      secret.Name,
+ 		uid:       secret.UID,
+diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
+--- a/pkg/kubeapiserver/options/authentication.go
++++ b/pkg/kubeapiserver/options/authentication.go
+@@ -51,14 +51,12 @@ import (
+ 	"k8s.io/apiserver/plugin/pkg/authenticator/token/oidc"
+ 	"k8s.io/client-go/informers"
+ 	"k8s.io/client-go/kubernetes"
+-	v1listers "k8s.io/client-go/listers/core/v1"
+ 	certutil "k8s.io/client-go/util/cert"
+ 	"k8s.io/client-go/util/keyutil"
+ 	cliflag "k8s.io/component-base/cli/flag"
+ 	"k8s.io/klog/v2"
+ 	openapicommon "k8s.io/kube-openapi/pkg/common"
+ 	serviceaccountcontroller "k8s.io/kubernetes/pkg/controller/serviceaccount"
+-	"k8s.io/kubernetes/pkg/features"
+ 	kubeauthenticator "k8s.io/kubernetes/pkg/kubeapiserver/authenticator"
+ 	authzmodes "k8s.io/kubernetes/pkg/kubeapiserver/authorizer/modes"
+ 	"k8s.io/kubernetes/pkg/serviceaccount"
+@@ -713,17 +711,10 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
+ 	if o.ServiceAccounts != nil && o.ServiceAccounts.OptionalTokenGetter != nil {
+ 		authenticatorConfig.ServiceAccountTokenGetter = o.ServiceAccounts.OptionalTokenGetter(versionedInformer)
+ 	} else {
+-		var nodeLister v1listers.NodeLister
+-		if utilfeature.DefaultFeatureGate.Enabled(features.ServiceAccountTokenNodeBindingValidation) {
+-			nodeLister = versionedInformer.Core().V1().Nodes().Lister()
+-		}
+-
+ 		authenticatorConfig.ServiceAccountTokenGetter = serviceaccountcontroller.NewGetterFromClient(
+ 			extclient,
+ 			versionedInformer.Core().V1().Secrets().Lister(),
+ 			versionedInformer.Core().V1().ServiceAccounts().Lister(),
+-			versionedInformer.Core().V1().Pods().Lister(),
+-			nodeLister,
+ 		)
+ 	}
+ 	authenticatorConfig.SecretsWriter = extclient.CoreV1()
+diff --git a/pkg/serviceaccount/jwt.go b/pkg/serviceaccount/jwt.go
+--- a/pkg/serviceaccount/jwt.go
++++ b/pkg/serviceaccount/jwt.go
+@@ -31,6 +31,8 @@ import (
+ 	jose "gopkg.in/go-jose/go-jose.v2"
+ 	"gopkg.in/go-jose/go-jose.v2/jwt"
+ 
++	"github.com/kcp-dev/logicalcluster/v3"
++
+ 	v1 "k8s.io/api/core/v1"
+ 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+ 	"k8s.io/apiserver/pkg/audit"
+@@ -38,6 +40,11 @@ import (
+ 	apiserverserviceaccount "k8s.io/apiserver/pkg/authentication/serviceaccount"
+ )
+ 
++// ServiceAccountTokenClusterGetter can scope down to a ServiceAccountTokenGetter for one cluster
++type ServiceAccountTokenClusterGetter interface {
++	Cluster(logicalcluster.Name) ServiceAccountTokenGetter
++}
++
+ // ServiceAccountTokenGetter defines functions to retrieve a named service account and secret
+ type ServiceAccountTokenGetter interface {
+ 	GetServiceAccount(ctx context.Context, namespace, name string) (*v1.ServiceAccount, error)
+diff --git a/test/e2e/apimachinery/discovery.go b/test/e2e/apimachinery/discovery.go
+--- a/test/e2e/apimachinery/discovery.go
++++ b/test/e2e/apimachinery/discovery.go
+@@ -22,6 +22,7 @@ import (
+ 	"path"
+ 	"strings"
+ 
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	"k8s.io/apimachinery/pkg/runtime/schema"
+ 	utilversion "k8s.io/apimachinery/pkg/util/version"
+@@ -102,7 +103,7 @@ var _ = SIGDescribe("Discovery", func() {
+ 		// is an implementation detail, which shouldn't be relied on by
+ 		// the clients. The following calculation is for test purpose
+ 		// only.
+-		expected := discovery.StorageVersionHash(spec.Group, storageVersion, spec.Names.Kind)
++		expected := discovery.StorageVersionHash(logicalcluster.From(testcrd.Crd), spec.Group, storageVersion, spec.Names.Kind)
+ 
+ 		for _, r := range resources.APIResources {
+ 			if r.Name == spec.Names.Plural {
+diff --git a/test/e2e_node/services/namespace_controller.go b/test/e2e_node/services/namespace_controller.go
+--- a/test/e2e_node/services/namespace_controller.go
++++ b/test/e2e_node/services/namespace_controller.go
+@@ -20,7 +20,9 @@ import (
+ 	"context"
+ 	"time"
+ 
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	v1 "k8s.io/api/core/v1"
++	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	"k8s.io/client-go/informers"
+ 	clientset "k8s.io/client-go/kubernetes"
+ 	"k8s.io/client-go/metadata"
+@@ -71,7 +73,9 @@ func (n *NamespaceController) Start(ctx context.Context) error {
+ 	if err != nil {
+ 		return err
+ 	}
+-	discoverResourcesFn := client.Discovery().ServerPreferredNamespacedResources
++	discoverResourcesFn := func(clusterName logicalcluster.Name) ([]*metav1.APIResourceList, error) {
++		return client.Discovery().ServerPreferredNamespacedResources()
++	}
+ 	informerFactory := informers.NewSharedInformerFactory(client, ncResyncPeriod)
+ 
+ 	nc := namespacecontroller.NewNamespaceController(
+diff --git a/test/integration/namespace/ns_conditions_test.go b/test/integration/namespace/ns_conditions_test.go
+--- a/test/integration/namespace/ns_conditions_test.go
++++ b/test/integration/namespace/ns_conditions_test.go
+@@ -23,6 +23,10 @@ import (
+ 	"testing"
+ 	"time"
+ 
++	kcpcorev1informers "github.com/kcp-dev/client-go/informers/core/v1"
++	kcpkubernetesclientset "github.com/kcp-dev/client-go/kubernetes"
++	kcpmetadata "github.com/kcp-dev/client-go/metadata"
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	appsv1 "k8s.io/api/apps/v1"
+ 	corev1 "k8s.io/api/core/v1"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+@@ -31,7 +35,6 @@ import (
+ 	"k8s.io/client-go/dynamic"
+ 	"k8s.io/client-go/informers"
+ 	clientset "k8s.io/client-go/kubernetes"
+-	"k8s.io/client-go/metadata"
+ 	restclient "k8s.io/client-go/rest"
+ 	"k8s.io/klog/v2/ktesting"
+ 	kubeapiservertesting "k8s.io/kubernetes/cmd/kube-apiserver/app/testing"
+@@ -181,26 +184,28 @@ func namespaceLifecycleSetup(t *testing.T) (context.Context, kubeapiservertestin
+ 	config := restclient.CopyConfig(server.ClientConfig)
+ 	config.QPS = 10000
+ 	config.Burst = 10000
+-	clientSet, err := clientset.NewForConfig(config)
++	clientSet, err := kcpkubernetesclientset.NewForConfig(config)
+ 	if err != nil {
+ 		t.Fatalf("error in create clientset: %v", err)
+ 	}
+ 	resyncPeriod := 12 * time.Hour
+-	informers := informers.NewSharedInformerFactory(clientset.NewForConfigOrDie(restclient.AddUserAgent(config, "deployment-informers")), resyncPeriod)
++	informers := kcpcorev1informers.NewNamespaceClusterInformer(kcpkubernetesclientset.NewForConfigOrDie(restclient.AddUserAgent(config, "deployment-informers")), resyncPeriod, nil)
+ 
+-	metadataClient, err := metadata.NewForConfig(config)
++	metadataClient, err := kcpmetadata.NewForConfig(config)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 
+-	discoverResourcesFn := clientSet.Discovery().ServerPreferredNamespacedResources
++	discoverResourcesFn := func(clusterName logicalcluster.Path) ([]*metav1.APIResourceList, error) {
++		return clientSet.Discovery().ServerPreferredNamespacedResources()
++	}
+ 	_, ctx := ktesting.NewTestContext(t)
+ 	controller := namespace.NewNamespaceController(
+ 		ctx,
+ 		clientSet,
+ 		metadataClient,
+ 		discoverResourcesFn,
+-		informers.Core().V1().Namespaces(),
++		informers,
+ 		10*time.Hour,
+ 		corev1.FinalizerKubernetes)
+ 

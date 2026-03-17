@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
+Date: Fri, 1 Sep 2023 12:20:14 +0200
+Subject: [PATCH] UPSTREAM: <carry>: kube-aggregator
+
+Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+---
+ .../pkg/controllers/openapi/aggregator/aggregator.go           | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/staging/src/k8s.io/kube-aggregator/pkg/controllers/openapi/aggregator/aggregator.go b/staging/src/k8s.io/kube-aggregator/pkg/controllers/openapi/aggregator/aggregator.go
+--- a/staging/src/k8s.io/kube-aggregator/pkg/controllers/openapi/aggregator/aggregator.go
++++ b/staging/src/k8s.io/kube-aggregator/pkg/controllers/openapi/aggregator/aggregator.go
+@@ -26,6 +26,7 @@ import (
+ 
+ 	restful "github.com/emicklei/go-restful/v3"
+ 
++	genericrequest "k8s.io/apiserver/pkg/endpoints/request"
+ 	"k8s.io/apiserver/pkg/server"
+ 	"k8s.io/klog/v2"
+ 	v1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
+@@ -124,7 +125,7 @@ func BuildAndRegisterAggregator(downloader *Downloader, delegationTarget server.
+ 		// ignore errors for the empty delegate we attach at the end the chain
+ 		// atm the empty delegate returns 503 when the server hasn't been fully initialized
+ 		// and the spec downloader only silences 404s
+-		if len(delegate.ListedPaths()) == 0 && delegate.NextDelegate() == nil {
++		if len(delegate.ListedPaths(&genericrequest.Cluster{})) == 0 && delegate.NextDelegate() == nil { // TODO(kcp-1.28): Should be removed once all rebase lands
+ 			continue
+ 		}
+ 		delegationHandlers = append(delegationHandlers, handler)

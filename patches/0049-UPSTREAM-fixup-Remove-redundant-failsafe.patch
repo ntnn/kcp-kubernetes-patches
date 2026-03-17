@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Tue, 30 Sep 2025 09:57:21 +0200
+Subject: [PATCH] UPSTREAM: <fixup>: Remove redundant failsafe
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ pkg/registry/rbac/validation/kcp.go | 10 ----------
+ 1 file changed, 10 deletions(-)
+
+diff --git a/pkg/registry/rbac/validation/kcp.go b/pkg/registry/rbac/validation/kcp.go
+--- a/pkg/registry/rbac/validation/kcp.go
++++ b/pkg/registry/rbac/validation/kcp.go
+@@ -170,16 +170,6 @@ func EffectiveUsers(clusterName logicalcluster.Name, u user.Info) []user.Info {
+ 			}
+ 		}
+ 
+-		if len(u.GetExtra()[WarrantExtraKey]) > 0 && len(u.GetExtra()[ClusterExtraKey]) > 0 && !IsServiceAccount(u) {
+-			// Users that are not SAs and have a cluster extra key
+-			// cannot have warrants, as they would be coming from
+-			// per-workspace authentication.
+-			// If this happens it is either a misconfiguration from the
+-			// admin or a malicious actor that tries to escalate
+-			// privileges through warrants.
+-			return
+-		}
+-
+ 		for _, v := range u.GetExtra()[WarrantExtraKey] {
+ 			var w Warrant
+ 			if err := json.Unmarshal([]byte(v), &w); err != nil {

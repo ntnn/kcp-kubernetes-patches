@@ -1,0 +1,255 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
+Date: Wed, 27 Sep 2023 13:34:18 +0200
+Subject: [PATCH] UPSTREAM: <carry>: endpoints/patch: wire openapi for CRD
+ strategic merge patch
+
+Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+---
+ .../apiserver/pkg/endpoints/handlers/patch.go | 27 ++++++-
+ .../apiserver/pkg/endpoints/handlers/rest.go  |  3 +
+ .../pkg/endpoints/handlers/rest_test.go       |  8 +-
+ .../pkg/endpoints/openapi/openapi.go          | 75 +++++++++++++++++++
+ 4 files changed, 107 insertions(+), 6 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go
+--- a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go
++++ b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go
+@@ -57,6 +57,7 @@ import (
+ 	"k8s.io/apiserver/pkg/util/dryrun"
+ 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+ 	"k8s.io/component-base/tracing"
++	"k8s.io/kube-openapi/pkg/util/proto"
+ )
+ 
+ const (
+@@ -441,6 +442,7 @@ type smpPatcher struct {
+ 	// Schema
+ 	schemaReferenceObj runtime.Object
+ 	fieldManager       *managedfields.FieldManager
++	openapiModel       proto.Schema
+ }
+ 
+ func (p *smpPatcher) applyPatchToCurrentObject(requestContext context.Context, currentObject runtime.Object) (runtime.Object, error) {
+@@ -454,7 +456,7 @@ func (p *smpPatcher) applyPatchToCurrentObject(requestContext context.Context, c
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	if err := strategicPatchObject(requestContext, p.defaulter, currentVersionedObject, p.patchBytes, versionedObjToUpdate, p.schemaReferenceObj, p.validationDirective); err != nil {
++	if err := strategicPatchObject(requestContext, p.defaulter, currentVersionedObject, p.patchBytes, versionedObjToUpdate, p.schemaReferenceObj, p.validationDirective, p.openapiModel); err != nil {
+ 		return nil, err
+ 	}
+ 	// Convert the object back to the hub version
+@@ -550,7 +552,17 @@ func strategicPatchObject(
+ 	objToUpdate runtime.Object,
+ 	schemaReferenceObj runtime.Object,
+ 	validationDirective string,
++	openapiModel proto.Schema,
+ ) error {
++	// kcp: because we support using CRDs to represent built-in Kubernetes types (e.g. deployments) that do support
++	// strategic patch, we have to make sure we deep copy originalObject if it's already unstructured.Unstructured,
++	// because runtime.DefaultUnstructuredConverter.ToUnstructured returns the underlying map from an Unstructured
++	// without copying it, meaning that the call to applyPatchToObject below mutates the original Unstructured
++	// content unless we've first made a deep copy.
++	if _, ok := originalObject.(runtime.Unstructured); ok {
++		copiedOriginal := originalObject.DeepCopyObject()
++		originalObject = copiedOriginal
++	}
+ 	originalObjMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(originalObject)
+ 	if err != nil {
+ 		return err
+@@ -569,7 +581,7 @@ func strategicPatchObject(
+ 		}
+ 	}
+ 
+-	if err := applyPatchToObject(requestContext, defaulter, originalObjMap, patchMap, objToUpdate, schemaReferenceObj, strictErrs, validationDirective); err != nil {
++	if err := applyPatchToObject(requestContext, defaulter, originalObjMap, patchMap, objToUpdate, schemaReferenceObj, strictErrs, validationDirective, openapiModel); err != nil {
+ 		return err
+ 	}
+ 	return nil
+@@ -663,10 +675,17 @@ func (p *patcher) patchResource(ctx context.Context, scope *RequestScope) (runti
+ 		if err != nil {
+ 			return nil, false, err
+ 		}
++
++		var schema proto.Schema
++		modelsByGKV := scope.OpenapiModels
++		if modelsByGKV != nil {
++			schema = modelsByGKV[p.kind]
++		}
+ 		p.mechanism = &smpPatcher{
+ 			patcher:            p,
+ 			schemaReferenceObj: schemaReferenceObj,
+ 			fieldManager:       scope.FieldManager,
++			openapiModel:       schema,
+ 		}
+ 	// this case is unreachable if ServerSideApply is not enabled because we will have already rejected the content type
+ 	case types.ApplyYAMLPatchType:
+@@ -749,8 +768,12 @@ func applyPatchToObject(
+ 	schemaReferenceObj runtime.Object,
+ 	strictErrs []error,
+ 	validationDirective string,
++	openapiModel proto.Schema,
+ ) error {
+ 	patchedObjMap, err := strategicpatch.StrategicMergeMapPatch(originalMap, patchMap, schemaReferenceObj)
++	if err == mergepatch.ErrUnsupportedStrategicMergePatchFormat && openapiModel != nil {
++		patchedObjMap, err = strategicpatch.StrategicMergeMapPatchUsingLookupPatchMeta(originalMap, patchMap, strategicpatch.NewPatchMetaFromOpenAPI(openapiModel))
++	}
+ 	if err != nil {
+ 		return interpretStrategicMergePatchError(err)
+ 	}
+diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest.go b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest.go
+--- a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest.go
++++ b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest.go
+@@ -43,6 +43,7 @@ import (
+ 	requestmetrics "k8s.io/apiserver/pkg/endpoints/handlers/metrics"
+ 	"k8s.io/apiserver/pkg/endpoints/handlers/responsewriters"
+ 	"k8s.io/apiserver/pkg/endpoints/metrics"
++	"k8s.io/apiserver/pkg/endpoints/openapi"
+ 	"k8s.io/apiserver/pkg/endpoints/request"
+ 	"k8s.io/apiserver/pkg/registry/rest"
+ 	"k8s.io/apiserver/pkg/warning"
+@@ -106,6 +107,8 @@ type RequestScope struct {
+ 	HubGroupVersion schema.GroupVersion
+ 
+ 	MaxRequestBodyBytes int64
++
++	OpenapiModels openapi.ModelsByGKV
+ }
+ 
+ func (scope *RequestScope) err(err error, w http.ResponseWriter, req *http.Request) {
+diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest_test.go b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest_test.go
+--- a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest_test.go
+@@ -103,7 +103,7 @@ func TestPatchAnonymousField(t *testing.T) {
+ 	}
+ 
+ 	actual := &testPatchType{}
+-	err := strategicPatchObject(context.TODO(), defaulter, original, []byte(patch), actual, &testPatchType{}, "")
++	err := strategicPatchObject(context.TODO(), defaulter, original, []byte(patch), actual, &testPatchType{}, "", nil)
+ 	if err != nil {
+ 		t.Fatalf("unexpected error: %v", err)
+ 	}
+@@ -214,7 +214,7 @@ func TestStrategicMergePatchInvalid(t *testing.T) {
+ 	expectedError := "invalid character 'b' looking for beginning of value"
+ 
+ 	actual := &testPatchType{}
+-	err := strategicPatchObject(context.TODO(), defaulter, original, []byte(patch), actual, &testPatchType{}, "")
++	err := strategicPatchObject(context.TODO(), defaulter, original, []byte(patch), actual, &testPatchType{}, "", nil)
+ 	if !apierrors.IsBadRequest(err) {
+ 		t.Errorf("expected HTTP status: BadRequest, got: %#v", apierrors.ReasonForError(err))
+ 	}
+@@ -314,7 +314,7 @@ func TestPatchCustomResource(t *testing.T) {
+ 	expectedError := "strategic merge patch format is not supported"
+ 
+ 	actual := &unstructured.Unstructured{}
+-	err := strategicPatchObject(context.TODO(), defaulter, original, []byte(patch), actual, &unstructured.Unstructured{}, "")
++	err := strategicPatchObject(context.TODO(), defaulter, original, []byte(patch), actual, &unstructured.Unstructured{}, "", nil)
+ 	if !apierrors.IsBadRequest(err) {
+ 		t.Errorf("expected HTTP status: BadRequest, got: %#v", apierrors.ReasonForError(err))
+ 	}
+@@ -672,7 +672,7 @@ func TestNumberConversion(t *testing.T) {
+ 
+ 	patchJS := []byte(`{"spec":{"terminationGracePeriodSeconds":42,"activeDeadlineSeconds":120}}`)
+ 
+-	err := strategicPatchObject(context.TODO(), defaulter, currentVersionedObject, patchJS, versionedObjToUpdate, schemaReferenceObj, "")
++	err := strategicPatchObject(context.TODO(), defaulter, currentVersionedObject, patchJS, versionedObjToUpdate, schemaReferenceObj, "", nil)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go b/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go
+--- a/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go
++++ b/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go
+@@ -18,6 +18,7 @@ package openapi
+ 
+ import (
+ 	"bytes"
++	"errors"
+ 	"fmt"
+ 	"sort"
+ 	"strings"
+@@ -31,6 +32,7 @@ import (
+ 	"k8s.io/klog/v2"
+ 	"k8s.io/kube-openapi/pkg/util"
+ 	"k8s.io/kube-openapi/pkg/validation/spec"
++	"k8s.io/kube-openapi/pkg/util/proto"
+ )
+ 
+ var verbs = util.NewTrie([]string{"get", "log", "read", "replace", "patch", "delete", "deletecollection", "watch", "connect", "proxy", "list", "create", "patch"})
+@@ -173,3 +175,76 @@ func (d *DefinitionNamer) GetDefinitionName(name string) (string, spec.Extension
+ 	}
+ 	return name, nil
+ }
++
++type ModelsByGKV map[schema.GroupVersionKind]proto.Schema
++
++// NewOpenAPIData creates a new `Resources` out of the openapi models
++func GetModelsByGKV(models proto.Models) (ModelsByGKV, error) {
++	result := map[schema.GroupVersionKind]proto.Schema{}
++	for _, modelName := range models.ListModels() {
++		model := models.LookupModel(modelName)
++		if model == nil {
++			return map[schema.GroupVersionKind]proto.Schema{}, errors.New("ListModels returns a model that can't be looked-up.")
++		}
++		gvkList := parseGroupVersionKind(model)
++		for _, gvk := range gvkList {
++			if len(gvk.Kind) > 0 {
++				key := schema.GroupVersionKind{Group: gvk.Group, Version: gvk.Version, Kind: gvk.Kind}
++				if key.Group == "core" {
++					key.Group = ""
++				}
++				result[key] = model
++			}
++		}
++	}
++
++	return result, nil
++}
++
++// Get and parse GroupVersionKind from the extension. Returns empty if it doesn't have one.
++func parseGroupVersionKind(s proto.Schema) []schema.GroupVersionKind {
++	extensions := s.GetExtensions()
++
++	gvkListResult := []schema.GroupVersionKind{}
++
++	// Get the extensions
++	gvkExtension, ok := extensions[extensionGVK]
++	if !ok {
++		return []schema.GroupVersionKind{}
++	}
++
++	// gvk extension must be a list of at least 1 element.
++	gvkList, ok := gvkExtension.([]interface{})
++	if !ok {
++		return []schema.GroupVersionKind{}
++	}
++
++	for _, gvk := range gvkList {
++		// gvk extension list must be a map with group, version, and
++		// kind fields
++		gvkMap, ok := gvk.(map[interface{}]interface{})
++		if !ok {
++			continue
++		}
++		group, ok := gvkMap["group"].(string)
++		if !ok {
++			continue
++		}
++		version, ok := gvkMap["version"].(string)
++		if !ok {
++			continue
++		}
++		kind, ok := gvkMap["kind"].(string)
++		if !ok {
++			continue
++		}
++
++		gvkListResult = append(gvkListResult, schema.GroupVersionKind{
++			Group:   group,
++			Version: version,
++			Kind:    kind,
++		})
++	}
++
++	return gvkListResult
++}

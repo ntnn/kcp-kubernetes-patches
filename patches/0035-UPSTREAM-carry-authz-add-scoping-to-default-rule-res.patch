@@ -1,0 +1,419 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
+Date: Fri, 23 Aug 2024 08:23:28 +0200
+Subject: [PATCH] UPSTREAM: <carry>: authz: add scoping to default rule
+ resolver
+
+Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+---
+ pkg/registry/rbac/validation/kcp.go       | 108 ++++++++++
+ pkg/registry/rbac/validation/kcp_test.go  | 232 ++++++++++++++++++++++
+ pkg/registry/rbac/validation/rule.go      |   8 +-
+ pkg/registry/rbac/validation/rule_test.go |   3 +-
+ 4 files changed, 346 insertions(+), 5 deletions(-)
+ create mode 100644 pkg/registry/rbac/validation/kcp.go
+ create mode 100644 pkg/registry/rbac/validation/kcp_test.go
+
+diff --git a/pkg/registry/rbac/validation/kcp.go b/pkg/registry/rbac/validation/kcp.go
+new file mode 100644
+--- /dev/null
++++ b/pkg/registry/rbac/validation/kcp.go
+@@ -0,0 +1,108 @@
++package validation
++
++import (
++	"context"
++	"strings"
++
++	"github.com/kcp-dev/logicalcluster/v3"
++	rbacv1 "k8s.io/api/rbac/v1"
++	"k8s.io/apimachinery/pkg/util/sets"
++	authserviceaccount "k8s.io/apiserver/pkg/authentication/serviceaccount"
++	"k8s.io/apiserver/pkg/authentication/user"
++	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
++)
++
++const (
++	// ScopeExtraKey is the key used in a user's "extra" to specify
++	// that the user is restricted to a given scope. Valid values for
++	// one extra value are:
++	// - "cluster:<name>"
++	// - "cluster:<name1>,cluster:<name2>"
++	// - etc.
++	// The clusters in one extra value are or'ed, multiple extra values
++	// are and'ed.
++	ScopeExtraKey = "authentication.kcp.io/scopes"
++
++	// ClusterPrefix is the prefix for cluster scopes.
++	clusterPrefix = "cluster:"
++)
++
++type appliesToUserFunc func(user user.Info, subject rbacv1.Subject, namespace string) bool
++type appliesToUserFuncCtx func(ctx context.Context, user user.Info, subject rbacv1.Subject, namespace string) bool
++
++var appliesToUserWithScopes = withScopes(appliesToUser)
++
++// withScopes wraps the appliesToUser predicate to check for the base user and any warrants.
++func withScopes(appliesToUser appliesToUserFunc) appliesToUserFuncCtx {
++	var recursive appliesToUserFuncCtx
++	recursive = func(ctx context.Context, u user.Info, bindingSubject rbacv1.Subject, namespace string) bool {
++		var clusterName logicalcluster.Name
++		if cluster := genericapirequest.ClusterFrom(ctx); cluster != nil {
++			clusterName = cluster.Name
++		}
++		if IsInScope(u, clusterName) && appliesToUser(u, bindingSubject, namespace) {
++			return true
++		}
++		if appliesToUser(scopeDown(u), bindingSubject, namespace) {
++			return true
++		}
++
++		return false
++	}
++	return recursive
++}
++
++var (
++	authenticated   = &user.DefaultInfo{Name: user.Anonymous, Groups: []string{user.AllAuthenticated}}
++	unauthenticated = &user.DefaultInfo{Name: user.Anonymous, Groups: []string{user.AllUnauthenticated}}
++)
++
++func scopeDown(u user.Info) user.Info {
++	for _, g := range u.GetGroups() {
++		if g == user.AllAuthenticated {
++			return authenticated
++		}
++	}
++
++	return unauthenticated
++}
++
++// IsServiceAccount returns true if the user is a service account.
++func IsServiceAccount(attr user.Info) bool {
++	return strings.HasPrefix(attr.GetName(), "system:serviceaccount:")
++}
++
++// IsForeign returns true if the service account is not from the given cluster.
++func IsForeign(attr user.Info, cluster logicalcluster.Name) bool {
++	clusters := attr.GetExtra()[authserviceaccount.ClusterNameKey]
++	if clusters == nil {
++		// an unqualified service account is considered local: think of some
++		// local SubjectAccessReview specifying a service account without the
++		// cluster scope.
++		return false
++	}
++	return !sets.New(clusters...).Has(string(cluster))
++}
++
++// IsInScope checks if the user is valid for the given cluster.
++func IsInScope(attr user.Info, cluster logicalcluster.Name) bool {
++	if IsServiceAccount(attr) && IsForeign(attr, cluster) {
++		return false
++	}
++
++	values := attr.GetExtra()[ScopeExtraKey]
++	for _, scopes := range values {
++		found := false
++		for _, scope := range strings.Split(scopes, ",") {
++			if strings.HasPrefix(scope, clusterPrefix) && scope[len(clusterPrefix):] == string(cluster) {
++				found = true
++				break
++			}
++		}
++		if !found {
++			return false
++		}
++	}
++
++	return true
++}
+diff --git a/pkg/registry/rbac/validation/kcp_test.go b/pkg/registry/rbac/validation/kcp_test.go
+new file mode 100644
+--- /dev/null
++++ b/pkg/registry/rbac/validation/kcp_test.go
+@@ -0,0 +1,232 @@
++package validation
++
++import (
++	"context"
++	"testing"
++
++	"github.com/kcp-dev/logicalcluster/v3"
++	rbacv1 "k8s.io/api/rbac/v1"
++	"k8s.io/apiserver/pkg/authentication/user"
++	"k8s.io/apiserver/pkg/endpoints/request"
++)
++
++func TestIsInScope(t *testing.T) {
++	tests := []struct {
++		name    string
++		info    user.DefaultInfo
++		cluster logicalcluster.Name
++		want    bool
++	}{
++		{name: "empty", cluster: logicalcluster.Name("cluster"), want: true},
++		{
++			name:    "empty scope",
++			info:    user.DefaultInfo{Extra: map[string][]string{"authentication.kcp.io/scopes": {""}}},
++			cluster: logicalcluster.Name("cluster"),
++			want:    false,
++		},
++		{
++			name:    "scoped user",
++			info:    user.DefaultInfo{Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:this"}}},
++			cluster: logicalcluster.Name("this"),
++			want:    true,
++		},
++		{
++			name:    "scoped user to a different cluster",
++			info:    user.DefaultInfo{Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:another"}}},
++			cluster: logicalcluster.Name("this"),
++			want:    false,
++		},
++		{
++			name:    "contradicting scopes",
++			info:    user.DefaultInfo{Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:this", "cluster:another"}}},
++			cluster: logicalcluster.Name("this"),
++			want:    false,
++		},
++		{
++			name:    "empty contradicting value",
++			info:    user.DefaultInfo{Extra: map[string][]string{"authentication.kcp.io/scopes": {"", "cluster:this"}}},
++			cluster: logicalcluster.Name("cluster"),
++			want:    false,
++		},
++		{
++			name:    "unknown scope",
++			info:    user.DefaultInfo{Extra: map[string][]string{"authentication.kcp.io/scopes": {"unknown:foo"}}},
++			cluster: logicalcluster.Name("this"),
++			want:    false,
++		},
++		{
++			name:    "another or'ed scope",
++			info:    user.DefaultInfo{Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:another,cluster:this"}}},
++			cluster: logicalcluster.Name("this"),
++			want:    true,
++		},
++		{
++			name:    "multiple or'ed scopes",
++			info:    user.DefaultInfo{Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:another,cluster:this", "cluster:this,cluster:other"}}},
++			cluster: logicalcluster.Name("this"),
++			want:    true,
++		},
++		{
++			name:    "multiple wrong or'ed scopes",
++			info:    user.DefaultInfo{Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:another,cluster:other"}}},
++			cluster: logicalcluster.Name("this"),
++			want:    false,
++		},
++		{
++			name:    "multiple or'ed scopes that contradict eachother",
++			info:    user.DefaultInfo{Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:this,cluster:other", "cluster:another,cluster:jungle"}}},
++			cluster: logicalcluster.Name("this"),
++			want:    false,
++		},
++		{
++			name:    "or'ed empty scope",
++			info:    user.DefaultInfo{Extra: map[string][]string{"authentication.kcp.io/scopes": {",,cluster:this"}}},
++			cluster: logicalcluster.Name("this"),
++			want:    true,
++		},
++		{
++			name:    "serviceaccount from other cluster",
++			info:    user.DefaultInfo{Name: "system:serviceaccount:default:foo", Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"anotherws"}}},
++			cluster: logicalcluster.Name("this"),
++			want:    false,
++		},
++		{
++			name:    "serviceaccount from same cluster",
++			info:    user.DefaultInfo{Name: "system:serviceaccount:default:foo", Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"this"}}},
++			cluster: logicalcluster.Name("this"),
++			want:    true,
++		},
++		{
++			name:    "serviceaccount without a cluster",
++			info:    user.DefaultInfo{Name: "system:serviceaccount:default:foo"},
++			cluster: logicalcluster.Name("this"),
++			// an unqualified service account is considered local: think of some
++			// local SubjectAccessReview specifying a service account without the
++			// cluster scope.
++			want: true,
++		},
++		{
++			name: "scoped service account",
++			info: user.DefaultInfo{Name: "system:serviceaccount:default:foo", Extra: map[string][]string{
++				"authentication.kubernetes.io/cluster-name": {"this"},
++				"authentication.kcp.io/scopes":              {"cluster:this"},
++			}},
++			cluster: logicalcluster.Name("this"),
++			want:    true,
++		},
++		{
++			name: "scoped foreign service account",
++			info: user.DefaultInfo{Name: "system:serviceaccount:default:foo", Extra: map[string][]string{
++				"authentication.kubernetes.io/cluster-name": {"another"},
++				"authentication.kcp.io/scopes":              {"cluster:this"},
++			}},
++			cluster: logicalcluster.Name("this"),
++			want:    false,
++		},
++		{
++			name: "scoped service account to another clusters",
++			info: user.DefaultInfo{Name: "system:serviceaccount:default:foo", Extra: map[string][]string{
++				"authentication.kubernetes.io/cluster-name": {"this"},
++				"authentication.kcp.io/scopes":              {"cluster:another"},
++			}},
++			want: false,
++		},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			if got := IsInScope(&tt.info, tt.cluster); got != tt.want {
++				t.Errorf("IsInScope() = %v, want %v", got, tt.want)
++			}
++		})
++	}
++}
++
++func TestAppliesToUserWithScopes(t *testing.T) {
++	tests := []struct {
++		name string
++		user user.Info
++		sub  rbacv1.Subject
++		want bool
++	}{
++		{
++			name: "simple matching user",
++			user: &user.DefaultInfo{Name: "user-a"},
++			sub:  rbacv1.Subject{Kind: "User", Name: "user-a"},
++			want: true,
++		},
++		{
++			name: "simple non-matching user",
++			user: &user.DefaultInfo{Name: "user-a"},
++			sub:  rbacv1.Subject{Kind: "User", Name: "user-b"},
++			want: false,
++		},
++		{
++			name: "foreign service account",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"other"}}},
++			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
++			want: false,
++		},
++		{
++			name: "local service account",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kubernetes.io/cluster-name": {"this"}}},
++			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
++			want: true,
++		},
++		{
++			name: "non-cluster-aware service account",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa"},
++			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
++			want: true,
++		},
++		{
++			name: "in-scope scoped user",
++			user: &user.DefaultInfo{Name: "user-a", Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:this"}}},
++			sub:  rbacv1.Subject{Kind: "User", Name: "user-a"},
++			want: true,
++		},
++		{
++			name: "out-of-scope user",
++			user: &user.DefaultInfo{Name: "user-a", Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:other"}}},
++			sub:  rbacv1.Subject{Kind: "User", Name: "user-a"},
++			want: false,
++		},
++		{
++			name: "out-of-scope anonymous user",
++			user: &user.DefaultInfo{Name: "user-a", Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:other"}}},
++			sub:  rbacv1.Subject{Kind: "Group", Name: "system:authenticated"},
++			want: false,
++		},
++		{
++			name: "out-of-scope anonymous user",
++			user: &user.DefaultInfo{Name: "user-a", Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:other"}}},
++			sub:  rbacv1.Subject{Kind: "Group", Name: "system:unauthenticated"},
++			want: true,
++		},
++		{
++			name: "out-of-scope authenticated user",
++			user: &user.DefaultInfo{Name: "user-a", Groups: []string{user.AllAuthenticated}, Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:other"}}},
++			sub:  rbacv1.Subject{Kind: "Group", Name: "system:authenticated"},
++			want: true,
++		},
++		{
++			name: "in-scope service account",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:this"}}},
++			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
++			want: true,
++		},
++		{
++			name: "out-of-scope service account",
++			user: &user.DefaultInfo{Name: "system:serviceaccount:ns:sa", Extra: map[string][]string{"authentication.kcp.io/scopes": {"cluster:other"}}},
++			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
++			want: false,
++		},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			ctx := request.WithCluster(context.Background(), request.Cluster{Name: "this"})
++			if got := appliesToUserWithScopes(ctx, tt.user, tt.sub, "ns"); got != tt.want {
++				t.Errorf("appliesToUserWithScopes(%#v, %#v) = %v, want %v", tt.user, tt.sub, got, tt.want)
++			}
++		})
++	}
++}
+diff --git a/pkg/registry/rbac/validation/rule.go b/pkg/registry/rbac/validation/rule.go
+--- a/pkg/registry/rbac/validation/rule.go
++++ b/pkg/registry/rbac/validation/rule.go
+@@ -184,7 +184,7 @@ func (r *DefaultRuleResolver) VisitRulesFor(ctx context.Context, user user.Info,
+ 	} else {
+ 		sourceDescriber := &clusterRoleBindingDescriber{}
+ 		for _, clusterRoleBinding := range clusterRoleBindings {
+-			subjectIndex, applies := appliesTo(user, clusterRoleBinding.Subjects, "")
++			subjectIndex, applies := appliesTo(ctx, user, clusterRoleBinding.Subjects, "")
+ 			if !applies {
+ 				continue
+ 			}
+@@ -213,7 +213,7 @@ func (r *DefaultRuleResolver) VisitRulesFor(ctx context.Context, user user.Info,
+ 		} else {
+ 			sourceDescriber := &roleBindingDescriber{}
+ 			for _, roleBinding := range roleBindings {
+-				subjectIndex, applies := appliesTo(user, roleBinding.Subjects, namespace)
++				subjectIndex, applies := appliesTo(ctx, user, roleBinding.Subjects, namespace)
+ 				if !applies {
+ 					continue
+ 				}
+@@ -260,9 +260,9 @@ func (r *DefaultRuleResolver) GetRoleReferenceRules(ctx context.Context, roleRef
+ 
+ // appliesTo returns whether any of the bindingSubjects applies to the specified subject,
+ // and if true, the index of the first subject that applies
+-func appliesTo(user user.Info, bindingSubjects []rbacv1.Subject, namespace string) (int, bool) {
++func appliesTo(ctx context.Context, user user.Info, bindingSubjects []rbacv1.Subject, namespace string) (int, bool) {
+ 	for i, bindingSubject := range bindingSubjects {
+-		if appliesToUser(user, bindingSubject, namespace) {
++		if appliesToUserWithScopes(ctx, user, bindingSubject, namespace) {
+ 			return i, true
+ 		}
+ 	}
+diff --git a/pkg/registry/rbac/validation/rule_test.go b/pkg/registry/rbac/validation/rule_test.go
+--- a/pkg/registry/rbac/validation/rule_test.go
++++ b/pkg/registry/rbac/validation/rule_test.go
+@@ -17,6 +17,7 @@ limitations under the License.
+ package validation
+ 
+ import (
++	"context"
+ 	"hash/fnv"
+ 	"io"
+ 	"reflect"
+@@ -267,7 +268,7 @@ func TestAppliesTo(t *testing.T) {
+ 	}
+ 
+ 	for _, tc := range tests {
+-		gotIndex, got := appliesTo(tc.user, tc.subjects, tc.namespace)
++		gotIndex, got := appliesTo(context.Background(), tc.user, tc.subjects, tc.namespace)
+ 		if got != tc.appliesTo {
+ 			t.Errorf("case %q want appliesTo=%t, got appliesTo=%t", tc.testCase, tc.appliesTo, got)
+ 		}

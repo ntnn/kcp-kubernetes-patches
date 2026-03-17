@@ -1,0 +1,182 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Sun, 12 Apr 2026 15:52:10 +0200
+Subject: [PATCH] UPSTREAM: <carry>: Emit events for the correct cluster
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../garbagecollector/garbagecollector.go      | 19 ++++---
+ .../garbagecollector/graph_builder.go         |  9 +++-
+ pkg/controller/garbagecollector/kcp.go        | 53 +++++++++++++++++++
+ 3 files changed, 69 insertions(+), 12 deletions(-)
+
+diff --git a/pkg/controller/garbagecollector/garbagecollector.go b/pkg/controller/garbagecollector/garbagecollector.go
+--- a/pkg/controller/garbagecollector/garbagecollector.go
++++ b/pkg/controller/garbagecollector/garbagecollector.go
+@@ -24,6 +24,7 @@ import (
+ 	"sync"
+ 	"time"
+ 
++	kcpkubernetesclientset "github.com/kcp-dev/client-go/kubernetes"
+ 	"k8s.io/apimachinery/pkg/api/errors"
+ 	"k8s.io/apimachinery/pkg/api/meta"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+@@ -33,9 +34,7 @@ import (
+ 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+ 	"k8s.io/apimachinery/pkg/util/sets"
+ 	"k8s.io/apimachinery/pkg/util/wait"
+-	"k8s.io/client-go/discovery"
+-	clientset "k8s.io/client-go/kubernetes" // import known versions
+-	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
++	"k8s.io/client-go/discovery" // import known versions
+ 	"k8s.io/client-go/metadata"
+ 	"k8s.io/client-go/tools/cache"
+ 	"k8s.io/client-go/tools/record"
+@@ -72,8 +71,8 @@ type GarbageCollector struct {
+ 	// GC caches the owners that do not exist according to the API server.
+ 	absentOwnerCache *ReferenceCache
+ 
+-	kubeClient       clientset.Interface
+-	eventBroadcaster record.EventBroadcaster
++	kubeClusterClient *kcpkubernetesclientset.ClusterClientset
++	eventBroadcaster  record.EventBroadcaster
+ }
+ 
+ var _ controller.Interface = (*GarbageCollector)(nil)
+@@ -82,7 +81,7 @@ var _ controller.Debuggable = (*GarbageCollector)(nil)
+ // NewGarbageCollector creates a new GarbageCollector.
+ func NewGarbageCollector(
+ 	ctx context.Context,
+-	kubeClient clientset.Interface,
++	kubeClusterClient *kcpkubernetesclientset.ClusterClientset,
+ 	metadataClient metadata.Interface,
+ 	mapper meta.ResettableRESTMapper,
+ 	ignoredResources map[schema.GroupResource]struct{},
+@@ -90,12 +89,12 @@ func NewGarbageCollector(
+ 	informersStarted <-chan struct{},
+ ) (*GarbageCollector, error) {
+ 	graphBuilder := NewDependencyGraphBuilder(ctx, metadataClient, mapper, ignoredResources, sharedInformers, informersStarted)
+-	return NewComposedGarbageCollector(ctx, kubeClient, metadataClient, mapper, graphBuilder)
++	return NewComposedGarbageCollector(ctx, kubeClusterClient, metadataClient, mapper, graphBuilder)
+ }
+ 
+ func NewComposedGarbageCollector(
+ 	ctx context.Context,
+-	kubeClient clientset.Interface,
++	kubeClusterClient *kcpkubernetesclientset.ClusterClientset,
+ 	metadataClient metadata.Interface,
+ 	mapper meta.ResettableRESTMapper,
+ 	graphBuilder *GraphBuilder,
+@@ -108,7 +107,7 @@ func NewComposedGarbageCollector(
+ 		attemptToDelete:        attemptToDelete,
+ 		attemptToOrphan:        attemptToOrphan,
+ 		absentOwnerCache:       absentOwnerCache,
+-		kubeClient:             kubeClient,
++		kubeClusterClient:      kubeClusterClient,
+ 		eventBroadcaster:       graphBuilder.eventBroadcaster,
+ 		dependencyGraphBuilder: graphBuilder,
+ 	}
+@@ -134,7 +133,7 @@ func (gc *GarbageCollector) Run(ctx context.Context, workers int, initialSyncTim
+ 
+ 	// Start events processing pipeline.
+ 	gc.eventBroadcaster.StartStructuredLogging(3)
+-	gc.eventBroadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: gc.kubeClient.CoreV1().Events("")})
++	gc.eventBroadcaster.StartRecordingToSink(&clusterEventSinkImpl{client: gc.kubeClusterClient})
+ 	defer gc.eventBroadcaster.Shutdown()
+ 
+ 	logger := klog.FromContext(ctx)
+diff --git a/pkg/controller/garbagecollector/graph_builder.go b/pkg/controller/garbagecollector/graph_builder.go
+--- a/pkg/controller/garbagecollector/graph_builder.go
++++ b/pkg/controller/garbagecollector/graph_builder.go
+@@ -44,6 +44,7 @@ import (
+ 	"k8s.io/kubernetes/pkg/controller/apis/config/scheme"
+ 	"k8s.io/kubernetes/pkg/controller/garbagecollector/metaonly"
+ 
++	kcpcache "github.com/kcp-dev/apimachinery/v2/pkg/cache"
+ 	"github.com/kcp-dev/logicalcluster/v3"
+ )
+ 
+@@ -524,8 +525,12 @@ func (gb *GraphBuilder) reportInvalidNamespaceOwnerRef(n *node, invalidOwnerUID
+ 		Kind:       n.identity.Kind,
+ 		APIVersion: n.identity.APIVersion,
+ 		Namespace:  n.identity.Namespace,
+-		Name:       n.identity.Name,
+-		UID:        n.identity.UID,
++		// This is only safe because the recorder points at
++		// a broadcaster that is pushing the events to
++		// clusterEventSinkImpl, which is then splitting the cluster and
++		// name and edits the event before passing it along.
++		Name: kcpcache.ToClusterAwareKey(n.identity.Cluster.String(), "", n.identity.Name),
++		UID:  n.identity.UID,
+ 	}
+ 	invalidIdentity := objectReference{
+ 		OwnerReference: metav1.OwnerReference{
+diff --git a/pkg/controller/garbagecollector/kcp.go b/pkg/controller/garbagecollector/kcp.go
+--- a/pkg/controller/garbagecollector/kcp.go
++++ b/pkg/controller/garbagecollector/kcp.go
+@@ -19,7 +19,12 @@ package garbagecollector
+ import (
+ 	"context"
+ 
++	kcpcache "github.com/kcp-dev/apimachinery/v2/pkg/cache"
++	kcpkubernetesclientset "github.com/kcp-dev/client-go/kubernetes"
+ 	"github.com/kcp-dev/logicalcluster/v3"
++	v1 "k8s.io/api/core/v1"
++	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
++	"k8s.io/client-go/tools/record"
+ )
+ 
+ type clusterContextKey struct{}
+@@ -36,3 +41,51 @@ func ClusterFrom(ctx context.Context) logicalcluster.Name {
+ func contextForCluster(ref objectReference) context.Context {
+ 	return WithCluster(context.TODO(), ref.Cluster)
+ }
++
++var _ record.EventSink = (*clusterEventSinkImpl)(nil)
++
++// clusterEventSinkImpl allows the non-cluster aware garbage collector
++// to emit cluster aware events.
++//
++// The core problem is that the broadcaster writes to sinks and events
++// are written to recorders build from broadcasters:
++// eventf(ref) -> recorder -> broadcaster -> sink
++//
++// To make this chain cluster aware either the object reference would
++// have to be cluster aware - which could produce side effects because
++// no other code is expected object references to be cluster-aware. It
++// could also confuse other tooling if starting to rely on this being
++// cluster aware.
++//
++// Instead the producer is patched to put the cluster name into the name
++// on the object reference and this sink then extracts the name from
++// there.
++// This works because the recorder and broadcaster are accepting the
++// object reference as-is and place it in the InvolvedObject property of
++// the event to be emitted, allowing the sink to extract the cluster
++// name and fix the name.
++type clusterEventSinkImpl struct {
++	client *kcpkubernetesclientset.ClusterClientset
++}
++
++func (sink *clusterEventSinkImpl) getClient(event *v1.Event) v1core.EventInterface {
++	cluster, _, name, err := kcpcache.SplitMetaClusterNamespaceKey(event.InvolvedObject.Name)
++	if err != nil {
++		panic("error splitting name into cluster and name in garbage collector")
++	}
++
++	event.InvolvedObject.Name = name
++	return sink.client.Cluster(cluster.Path()).CoreV1().Events("")
++}
++
++func (sink *clusterEventSinkImpl) Create(event *v1.Event) (*v1.Event, error) {
++	return sink.getClient(event).CreateWithEventNamespace(event)
++}
++
++func (sink *clusterEventSinkImpl) Update(event *v1.Event) (*v1.Event, error) {
++	return sink.getClient(event).UpdateWithEventNamespace(event)
++}
++
++func (sink *clusterEventSinkImpl) Patch(event *v1.Event, data []byte) (*v1.Event, error) {
++	return sink.getClient(event).PatchWithEventNamespace(event, data)
++}

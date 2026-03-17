@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
+Date: Wed, 27 Sep 2023 15:54:31 +0200
+Subject: [PATCH] UPSTREAM: <carry>: apiserver: split chain into pre and post
+ authz
+
+Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+---
+ staging/src/k8s.io/apiserver/pkg/server/config.go | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/server/config.go b/staging/src/k8s.io/apiserver/pkg/server/config.go
+--- a/staging/src/k8s.io/apiserver/pkg/server/config.go
++++ b/staging/src/k8s.io/apiserver/pkg/server/config.go
+@@ -1030,16 +1030,25 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G
+ func BuildHandlerChainWithStorageVersionPrecondition(apiHandler http.Handler, c *Config) http.Handler {
+ 	// WithStorageVersionPrecondition needs the WithRequestInfo to run first
+ 	handler := genericapifilters.WithStorageVersionPrecondition(apiHandler, c.StorageVersionManager, c.Serializer)
+-	return DefaultBuildHandlerChain(handler, c)
++	return DefaultBuildHandlerChainFromAuthz(handler, c)
+ }
+ 
+ func DefaultBuildHandlerChain(apiHandler http.Handler, c *Config) http.Handler {
+-	handler := apiHandler
++	handler := DefaultBuildHandlerChainFromAuthz(apiHandler, c)
++	handler = DefaultBuildHandlerChainBeforeAuthz(handler, c)
++	return handler
++}
+ 
++func DefaultBuildHandlerChainFromAuthz(apiHandler http.Handler, c *Config) http.Handler {
++	handler := apiHandler
+ 	handler = filterlatency.TrackCompleted(handler)
+ 	handler = genericapifilters.WithAuthorization(handler, c.Authorization.Authorizer, c.Serializer)
+ 	handler = filterlatency.TrackStarted(handler, c.TracerProvider, "authorization")
++	return handler
++}
+ 
++func DefaultBuildHandlerChainBeforeAuthz(apiHandler http.Handler, c *Config) http.Handler {
++	handler := apiHandler
+ 	if c.FlowControl != nil {
+ 		workEstimatorCfg := flowcontrolrequest.DefaultWorkEstimatorConfig()
+ 		requestWorkEstimator := flowcontrolrequest.NewWorkEstimator(

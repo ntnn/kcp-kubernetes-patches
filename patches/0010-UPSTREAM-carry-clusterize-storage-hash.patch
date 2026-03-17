@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
+Date: Wed, 27 Sep 2023 13:30:16 +0200
+Subject: [PATCH] UPSTREAM: <carry>: clusterize storage hash
+
+Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+---
+ .../pkg/endpoints/discovery/storageversionhash.go        | 9 +++++++--
+ staging/src/k8s.io/apiserver/pkg/endpoints/installer.go  | 3 ++-
+ 2 files changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/discovery/storageversionhash.go b/staging/src/k8s.io/apiserver/pkg/endpoints/discovery/storageversionhash.go
+--- a/staging/src/k8s.io/apiserver/pkg/endpoints/discovery/storageversionhash.go
++++ b/staging/src/k8s.io/apiserver/pkg/endpoints/discovery/storageversionhash.go
+@@ -19,14 +19,19 @@ package discovery
+ import (
+ 	"crypto/sha256"
+ 	"encoding/base64"
++
++	"github.com/kcp-dev/logicalcluster/v3"
+ )
+ 
+ // StorageVersionHash calculates the storage version hash for a
+ // <group/version/kind> tuple.
+ // WARNING: this function is subject to change. Clients shouldn't depend on
+ // this function.
+-func StorageVersionHash(group, version, kind string) string {
+-	gvk := group + "/" + version + "/" + kind
++func StorageVersionHash(clusterName logicalcluster.Name, group, version, kind string) string {
++	gvk := clusterName.String() + "/" + group + "/" + version + "/" + kind
++	if gvk == "" {
++		return ""
++	}
+ 	bytes := sha256.Sum256([]byte(gvk))
+ 	// Assuming there are N kinds in the cluster, and the hash is X-byte long,
+ 	// the chance of colliding hash P(N,X) approximates to 1-e^(-(N^2)/2^(8X+1)).
+diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/installer.go b/staging/src/k8s.io/apiserver/pkg/endpoints/installer.go
+--- a/staging/src/k8s.io/apiserver/pkg/endpoints/installer.go
++++ b/staging/src/k8s.io/apiserver/pkg/endpoints/installer.go
+@@ -26,6 +26,7 @@ import (
+ 	"unicode"
+ 
+ 	restful "github.com/emicklei/go-restful/v3"
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	"sigs.k8s.io/structured-merge-diff/v6/fieldpath"
+ 
+ 	"golang.org/x/text/cases"
+@@ -494,7 +495,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
+ 		if err != nil {
+ 			return nil, nil, err
+ 		}
+-		apiResource.StorageVersionHash = discovery.StorageVersionHash(gvk.Group, gvk.Version, gvk.Kind)
++		apiResource.StorageVersionHash = discovery.StorageVersionHash(logicalcluster.Name(""), gvk.Group, gvk.Version, gvk.Kind)
+ 	}
+ 
+ 	// Get the list of actions for the given scope.

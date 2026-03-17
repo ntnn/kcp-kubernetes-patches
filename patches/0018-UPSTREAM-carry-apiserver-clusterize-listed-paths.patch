@@ -1,0 +1,214 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
+Date: Wed, 27 Sep 2023 15:55:21 +0200
+Subject: [PATCH] UPSTREAM: <carry>: apiserver: clusterize listed paths
+
+Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+---
+ .../apiserver/pkg/server/genericapiserver.go    |  8 ++++----
+ .../src/k8s.io/apiserver/pkg/server/handler.go  | 13 +++++++++++--
+ .../apiserver/pkg/server/mux/pathrecorder.go    |  3 ++-
+ .../pkg/server/mux/pathrecorder_test.go         | 17 +++++++++--------
+ .../k8s.io/apiserver/pkg/server/routes/index.go | 10 ++++++----
+ 5 files changed, 32 insertions(+), 19 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go b/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go
+--- a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go
++++ b/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go
+@@ -323,7 +323,7 @@ type DelegationTarget interface {
+ 	HealthzChecks() []healthz.HealthChecker
+ 
+ 	// ListedPaths returns the paths for supporting an index
+-	ListedPaths() []string
++	ListedPaths(cluster *genericrequest.Cluster) []string
+ 
+ 	// NextDelegate returns the next delegationTarget in the chain of delegations
+ 	NextDelegate() DelegationTarget
+@@ -353,8 +353,8 @@ func (s *GenericAPIServer) PreShutdownHooks() map[string]preShutdownHookEntry {
+ func (s *GenericAPIServer) HealthzChecks() []healthz.HealthChecker {
+ 	return s.healthzRegistry.checks
+ }
+-func (s *GenericAPIServer) ListedPaths() []string {
+-	return s.listedPathProvider.ListedPaths()
++func (s *GenericAPIServer) ListedPaths(cluster *genericrequest.Cluster) []string {
++	return s.listedPathProvider.ListedPaths(cluster)
+ }
+ 
+ func (s *GenericAPIServer) NextDelegate() DelegationTarget {
+@@ -420,7 +420,7 @@ func (s emptyDelegate) PreShutdownHooks() map[string]preShutdownHookEntry {
+ func (s emptyDelegate) HealthzChecks() []healthz.HealthChecker {
+ 	return []healthz.HealthChecker{}
+ }
+-func (s emptyDelegate) ListedPaths() []string {
++func (s emptyDelegate) ListedPaths(cluster *genericrequest.Cluster) []string {
+ 	return []string{}
+ }
+ func (s emptyDelegate) NextDelegate() DelegationTarget {
+diff --git a/staging/src/k8s.io/apiserver/pkg/server/handler.go b/staging/src/k8s.io/apiserver/pkg/server/handler.go
+--- a/staging/src/k8s.io/apiserver/pkg/server/handler.go
++++ b/staging/src/k8s.io/apiserver/pkg/server/handler.go
+@@ -25,12 +25,14 @@ import (
+ 	"strings"
+ 
+ 	"github.com/emicklei/go-restful/v3"
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	"k8s.io/klog/v2"
+ 
+ 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+ 	"k8s.io/apimachinery/pkg/runtime"
+ 	"k8s.io/apimachinery/pkg/runtime/schema"
+ 	"k8s.io/apiserver/pkg/endpoints/handlers/responsewriters"
++	genericrequest "k8s.io/apiserver/pkg/endpoints/request"
+ 	"k8s.io/apiserver/pkg/server/mux"
+ )
+ 
+@@ -64,6 +66,8 @@ type APIServerHandler struct {
+ 	// we should consider completely removing gorestful.
+ 	// Other servers should only use this opaquely to delegate to an API server.
+ 	Director http.Handler
++
++	PathValidForCluster func(path string, clusterName logicalcluster.Name) bool
+ }
+ 
+ // HandlerChainBuilderFn is used to wrap the GoRestfulContainer handler using the provided handler chain.
+@@ -100,13 +104,18 @@ func NewAPIServerHandler(name string, s runtime.NegotiatedSerializer, handlerCha
+ }
+ 
+ // ListedPaths returns the paths that should be shown under /
+-func (a *APIServerHandler) ListedPaths() []string {
++func (a *APIServerHandler) ListedPaths(cluster *genericrequest.Cluster) []string {
+ 	var handledPaths []string
+ 	// Extract the paths handled using restful.WebService
+ 	for _, ws := range a.GoRestfulContainer.RegisteredWebServices() {
+ 		handledPaths = append(handledPaths, ws.RootPath())
+ 	}
+-	handledPaths = append(handledPaths, a.NonGoRestfulMux.ListedPaths()...)
++
++	for _, path := range a.NonGoRestfulMux.ListedPaths(logicalcluster.Name("")) {
++		if a.PathValidForCluster == nil || a.PathValidForCluster(path, cluster.Name) {
++			handledPaths = append(handledPaths, path)
++		}
++	}
+ 	sort.Strings(handledPaths)
+ 
+ 	return handledPaths
+diff --git a/staging/src/k8s.io/apiserver/pkg/server/mux/pathrecorder.go b/staging/src/k8s.io/apiserver/pkg/server/mux/pathrecorder.go
+--- a/staging/src/k8s.io/apiserver/pkg/server/mux/pathrecorder.go
++++ b/staging/src/k8s.io/apiserver/pkg/server/mux/pathrecorder.go
+@@ -27,6 +27,7 @@ import (
+ 
+ 	"k8s.io/klog/v2"
+ 
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+ 	"k8s.io/apimachinery/pkg/util/sets"
+ )
+@@ -95,7 +96,7 @@ func NewPathRecorderMux(name string) *PathRecorderMux {
+ }
+ 
+ // ListedPaths returns the registered handler exposedPaths.
+-func (m *PathRecorderMux) ListedPaths() []string {
++func (m *PathRecorderMux) ListedPaths(clusterName logicalcluster.Name) []string {
+ 	m.lock.Lock()
+ 	handledPaths := append([]string{}, m.exposedPaths...)
+ 	m.lock.Unlock()
+diff --git a/staging/src/k8s.io/apiserver/pkg/server/mux/pathrecorder_test.go b/staging/src/k8s.io/apiserver/pkg/server/mux/pathrecorder_test.go
+--- a/staging/src/k8s.io/apiserver/pkg/server/mux/pathrecorder_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/server/mux/pathrecorder_test.go
+@@ -21,6 +21,7 @@ import (
+ 	"net/http/httptest"
+ 	"testing"
+ 
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	"github.com/stretchr/testify/assert"
+ )
+ 
+@@ -28,8 +29,8 @@ func TestSecretHandlers(t *testing.T) {
+ 	c := NewPathRecorderMux("test")
+ 	c.UnlistedHandleFunc("/secret", func(http.ResponseWriter, *http.Request) {})
+ 	c.HandleFunc("/nonswagger", func(http.ResponseWriter, *http.Request) {})
+-	assert.NotContains(t, c.ListedPaths(), "/secret")
+-	assert.Contains(t, c.ListedPaths(), "/nonswagger")
++	assert.NotContains(t, c.ListedPaths(logicalcluster.New("")), "/secret")
++	assert.Contains(t, c.ListedPaths(logicalcluster.New("")), "/nonswagger")
+ }
+ 
+ func TestUnregisterHandlers(t *testing.T) {
+@@ -44,15 +45,15 @@ func TestUnregisterHandlers(t *testing.T) {
+ 	c.HandleFunc("/nonswagger", func(http.ResponseWriter, *http.Request) {
+ 		first = first + 1
+ 	})
+-	assert.NotContains(t, c.ListedPaths(), "/secret")
+-	assert.Contains(t, c.ListedPaths(), "/nonswagger")
++	assert.NotContains(t, c.ListedPaths(logicalcluster.New("")), "/secret")
++	assert.Contains(t, c.ListedPaths(logicalcluster.New("")), "/nonswagger")
+ 
+ 	resp, _ := http.Get(s.URL + "/nonswagger")
+ 	assert.Equal(t, 1, first)
+ 	assert.Equal(t, http.StatusOK, resp.StatusCode)
+ 
+ 	c.Unregister("/nonswagger")
+-	assert.NotContains(t, c.ListedPaths(), "/nonswagger")
++	assert.NotContains(t, c.ListedPaths(logicalcluster.New("")), "/nonswagger")
+ 
+ 	resp, _ = http.Get(s.URL + "/nonswagger")
+ 	assert.Equal(t, 1, first)
+@@ -61,7 +62,7 @@ func TestUnregisterHandlers(t *testing.T) {
+ 	c.HandleFunc("/nonswagger", func(http.ResponseWriter, *http.Request) {
+ 		second = second + 1
+ 	})
+-	assert.Contains(t, c.ListedPaths(), "/nonswagger")
++	assert.Contains(t, c.ListedPaths(logicalcluster.New("")), "/nonswagger")
+ 	resp, _ = http.Get(s.URL + "/nonswagger")
+ 	assert.Equal(t, 1, first)
+ 	assert.Equal(t, 1, second)
+@@ -98,8 +99,8 @@ func TestPrefixHandlers(t *testing.T) {
+ 		fallThroughCount = fallThroughCount + 1
+ 	}))
+ 
+-	assert.NotContains(t, c.ListedPaths(), "/secretPrefix/")
+-	assert.Contains(t, c.ListedPaths(), "/publicPrefix/")
++	assert.NotContains(t, c.ListedPaths(logicalcluster.New("")), "/secretPrefix/")
++	assert.Contains(t, c.ListedPaths(logicalcluster.New("")), "/publicPrefix/")
+ 
+ 	resp, _ := http.Get(s.URL + "/fallthrough")
+ 	assert.Equal(t, 1, fallThroughCount)
+diff --git a/staging/src/k8s.io/apiserver/pkg/server/routes/index.go b/staging/src/k8s.io/apiserver/pkg/server/routes/index.go
+--- a/staging/src/k8s.io/apiserver/pkg/server/routes/index.go
++++ b/staging/src/k8s.io/apiserver/pkg/server/routes/index.go
+@@ -22,23 +22,24 @@ import (
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	"k8s.io/apimachinery/pkg/util/sets"
+ 	"k8s.io/apiserver/pkg/endpoints/handlers/responsewriters"
++	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+ 	"k8s.io/apiserver/pkg/server/mux"
+ )
+ 
+ // ListedPathProvider is an interface for providing paths that should be reported at /.
+ type ListedPathProvider interface {
+ 	// ListedPaths is an alphabetically sorted list of paths to be reported at /.
+-	ListedPaths() []string
++	ListedPaths(cluster *genericapirequest.Cluster) []string
+ }
+ 
+ // ListedPathProviders is a convenient way to combine multiple ListedPathProviders
+ type ListedPathProviders []ListedPathProvider
+ 
+ // ListedPaths unions and sorts the included paths.
+-func (p ListedPathProviders) ListedPaths() []string {
++func (p ListedPathProviders) ListedPaths(cluster *genericapirequest.Cluster) []string {
+ 	ret := sets.String{}
+ 	for _, provider := range p {
+-		for _, path := range provider.ListedPaths() {
++		for _, path := range provider.ListedPaths(cluster) {
+ 			ret.Insert(path)
+ 		}
+ 	}
+@@ -65,5 +66,6 @@ type IndexLister struct {
+ 
+ // ServeHTTP serves the available paths.
+ func (i IndexLister) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+-	responsewriters.WriteRawJSON(i.StatusCode, metav1.RootPaths{Paths: i.PathProvider.ListedPaths()}, w)
++	cluster := genericapirequest.ClusterFrom(r.Context())
++	responsewriters.WriteRawJSON(i.StatusCode, metav1.RootPaths{Paths: i.PathProvider.ListedPaths(cluster)}, w)
+ }

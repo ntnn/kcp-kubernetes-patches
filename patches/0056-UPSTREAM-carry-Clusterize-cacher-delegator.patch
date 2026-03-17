@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mangirdas Judeikis <mangirdas@judeikis.lt>
+Date: Mon, 8 Dec 2025 15:09:56 +0200
+Subject: [PATCH] UPSTREAM: <carry>: Clusterize cacher delegator
+
+Signed-off-by: Mangirdas Judeikis <mangirdas@judeikis.lt>
+---
+ staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
+@@ -35,6 +35,7 @@ import (
+ 	"k8s.io/apimachinery/pkg/util/wait"
+ 	"k8s.io/apimachinery/pkg/watch"
+ 	"k8s.io/apiserver/pkg/audit"
++	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+ 	"k8s.io/apiserver/pkg/features"
+ 	"k8s.io/apiserver/pkg/storage"
+ 	"k8s.io/apiserver/pkg/storage/cacher/delegator"
+@@ -329,6 +330,7 @@ func (c consistencyChecker) startChecking(stopCh <-chan struct{}) {
+ }
+ 
+ func (c *consistencyChecker) check(ctx context.Context) {
++	ctx = genericapirequest.WithCluster(ctx, genericapirequest.Cluster{Wildcard: true})
+ 	digests, err := c.calculateDigests(ctx)
+ 	if err != nil {
+ 		klog.ErrorS(err, "Cache consistency check error", "group", c.groupResource.Group, "resource", c.groupResource.Resource)

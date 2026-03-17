@@ -1,0 +1,511 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
+Date: Fri, 1 Sep 2023 12:17:04 +0200
+Subject: [PATCH] UPSTREAM: <carry>: INTERESTING: clusterize admission
+
+Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+Co-authored-by: Marvin Beckers <marvin@kubermatic.com>
+Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
+Co-authored-by: Robert Vasek <rvasek01@gmail.com>
+Signed-off-by: Robert Vasek <robert.vasek@clyso.com>
+---
+ plugin/pkg/admission/limitranger/admission.go |  5 ++
+ .../apiserver/pkg/admission/attributes.go     | 11 +++++
+ .../configuration/mutating_webhook_manager.go |  5 ++
+ .../validating_webhook_manager.go             |  5 ++
+ .../apiserver/pkg/admission/interfaces.go     |  4 ++
+ .../plugin/namespace/lifecycle/admission.go   | 38 ++++++++------
+ .../plugin/policy/generic/plugin_kcp.go       | 18 +++++++
+ .../plugin/resourcequota/admission.go         |  9 ++--
+ .../plugin/resourcequota/admission_kcp.go     | 32 ++++++++++++
+ .../plugin/resourcequota/resource_access.go   | 49 +++++++++++++++++++
+ .../plugin/webhook/generic/webhook_kcp.go     | 19 +++++++
+ .../plugin/webhook/mutating/dispatcher_kcp.go | 27 ++++++++++
+ .../webhook/validating/dispatcher_kcp.go      | 27 ++++++++++
+ 13 files changed, 229 insertions(+), 20 deletions(-)
+ create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go
+ create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission_kcp.go
+ create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook_kcp.go
+ create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/mutating/dispatcher_kcp.go
+ create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/validating/dispatcher_kcp.go
+
+diff --git a/plugin/pkg/admission/limitranger/admission.go b/plugin/pkg/admission/limitranger/admission.go
+--- a/plugin/pkg/admission/limitranger/admission.go
++++ b/plugin/pkg/admission/limitranger/admission.go
+@@ -91,6 +91,11 @@ func (l *LimitRanger) SetExternalKubeInformerFactory(f informers.SharedInformerF
+ 	l.lister = limitRangeInformer.Lister()
+ }
+ 
++// SetExternalKubeLister registers a limit range lister into the LimitRanger
++func (l *LimitRanger) SetExternalKubeLister(lister corev1listers.LimitRangeLister) {
++	l.lister = lister
++}
++
+ // SetExternalKubeClientSet registers the client into LimitRanger
+ func (l *LimitRanger) SetExternalKubeClientSet(client kubernetes.Interface) {
+ 	l.client = client
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/attributes.go b/staging/src/k8s.io/apiserver/pkg/admission/attributes.go
+--- a/staging/src/k8s.io/apiserver/pkg/admission/attributes.go
++++ b/staging/src/k8s.io/apiserver/pkg/admission/attributes.go
+@@ -21,6 +21,7 @@ import (
+ 	"strings"
+ 	"sync"
+ 
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	"k8s.io/apimachinery/pkg/runtime"
+ 	"k8s.io/apimachinery/pkg/runtime/schema"
+ 	"k8s.io/apimachinery/pkg/util/validation"
+@@ -41,6 +42,8 @@ type attributesRecord struct {
+ 	oldObject   runtime.Object
+ 	userInfo    user.Info
+ 
++	cluster logicalcluster.Name
++
+ 	// other elements are always accessed in single goroutine.
+ 	// But ValidatingAdmissionWebhook add annotations concurrently.
+ 	annotations     map[string]annotation
+@@ -115,6 +118,14 @@ func (record *attributesRecord) GetUserInfo() user.Info {
+ 	return record.userInfo
+ }
+ 
++func (record *attributesRecord) SetCluster(cluster logicalcluster.Name) {
++	record.cluster = cluster
++}
++
++func (record *attributesRecord) GetCluster() logicalcluster.Name {
++	return record.cluster
++}
++
+ // getAnnotations implements privateAnnotationsGetter.It's a private method used
+ // by WithAudit decorator.
+ func (record *attributesRecord) getAnnotations(maxLevel auditinternal.Level) map[string]string {
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/configuration/mutating_webhook_manager.go b/staging/src/k8s.io/apiserver/pkg/admission/configuration/mutating_webhook_manager.go
+--- a/staging/src/k8s.io/apiserver/pkg/admission/configuration/mutating_webhook_manager.go
++++ b/staging/src/k8s.io/apiserver/pkg/admission/configuration/mutating_webhook_manager.go
+@@ -27,6 +27,7 @@ import (
+ 	"k8s.io/apiserver/pkg/admission/plugin/webhook"
+ 	"k8s.io/apiserver/pkg/admission/plugin/webhook/generic"
+ 	"k8s.io/client-go/informers"
++	admissionregistrationinformers "k8s.io/client-go/informers/admissionregistration/v1"
+ 	admissionregistrationlisters "k8s.io/client-go/listers/admissionregistration/v1"
+ 	"k8s.io/client-go/tools/cache"
+ 	"k8s.io/client-go/tools/cache/synctrack"
+@@ -52,6 +53,10 @@ var _ generic.Source = &mutatingWebhookConfigurationManager{}
+ 
+ func NewMutatingWebhookConfigurationManager(f informers.SharedInformerFactory) generic.Source {
+ 	informer := f.Admissionregistration().V1().MutatingWebhookConfigurations()
++	return NewMutatingWebhookConfigurationManagerForInformer(informer)
++}
++
++func NewMutatingWebhookConfigurationManagerForInformer(informer admissionregistrationinformers.MutatingWebhookConfigurationInformer) generic.Source {
+ 	manager := &mutatingWebhookConfigurationManager{
+ 		lister:                        informer.Lister(),
+ 		createMutatingWebhookAccessor: webhook.NewMutatingWebhookAccessor,
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/configuration/validating_webhook_manager.go b/staging/src/k8s.io/apiserver/pkg/admission/configuration/validating_webhook_manager.go
+--- a/staging/src/k8s.io/apiserver/pkg/admission/configuration/validating_webhook_manager.go
++++ b/staging/src/k8s.io/apiserver/pkg/admission/configuration/validating_webhook_manager.go
+@@ -27,6 +27,7 @@ import (
+ 	"k8s.io/apiserver/pkg/admission/plugin/webhook"
+ 	"k8s.io/apiserver/pkg/admission/plugin/webhook/generic"
+ 	"k8s.io/client-go/informers"
++	admissionregistrationinformers "k8s.io/client-go/informers/admissionregistration/v1"
+ 	admissionregistrationlisters "k8s.io/client-go/listers/admissionregistration/v1"
+ 	"k8s.io/client-go/tools/cache"
+ 	"k8s.io/client-go/tools/cache/synctrack"
+@@ -52,6 +53,10 @@ var _ generic.Source = &validatingWebhookConfigurationManager{}
+ 
+ func NewValidatingWebhookConfigurationManager(f informers.SharedInformerFactory) generic.Source {
+ 	informer := f.Admissionregistration().V1().ValidatingWebhookConfigurations()
++	return NewValidatingWebhookConfigurationManagerForInformer(informer)
++}
++
++func NewValidatingWebhookConfigurationManagerForInformer(informer admissionregistrationinformers.ValidatingWebhookConfigurationInformer) generic.Source {
+ 	manager := &validatingWebhookConfigurationManager{
+ 		lister:                          informer.Lister(),
+ 		createValidatingWebhookAccessor: webhook.NewValidatingWebhookAccessor,
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/interfaces.go b/staging/src/k8s.io/apiserver/pkg/admission/interfaces.go
+--- a/staging/src/k8s.io/apiserver/pkg/admission/interfaces.go
++++ b/staging/src/k8s.io/apiserver/pkg/admission/interfaces.go
+@@ -20,6 +20,7 @@ import (
+ 	"context"
+ 	"io"
+ 
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	"k8s.io/apimachinery/pkg/runtime"
+ 	"k8s.io/apimachinery/pkg/runtime/schema"
+ 	auditinternal "k8s.io/apiserver/pkg/apis/audit"
+@@ -59,6 +60,9 @@ type Attributes interface {
+ 	// GetUserInfo is information about the requesting user
+ 	GetUserInfo() user.Info
+ 
++	GetCluster() logicalcluster.Name
++	SetCluster(logicalcluster.Name)
++
+ 	// AddAnnotation sets annotation according to key-value pair. The key should be qualified, e.g., podsecuritypolicy.admission.k8s.io/admit-policy, where
+ 	// "podsecuritypolicy" is the name of the plugin, "admission.k8s.io" is the name of the organization, "admit-policy" is the key name.
+ 	// An error is returned if the format of key is invalid. When trying to overwrite annotation with a new value, an error is returned.
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/namespace/lifecycle/admission.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/namespace/lifecycle/admission.go
+--- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/namespace/lifecycle/admission.go
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/namespace/lifecycle/admission.go
+@@ -22,6 +22,10 @@ import (
+ 	"io"
+ 	"time"
+ 
++	kcpcache "github.com/kcp-dev/apimachinery/v2/pkg/cache"
++	kcpkubernetesinformers "github.com/kcp-dev/client-go/informers"
++	kcpkubernetesclientset "github.com/kcp-dev/client-go/kubernetes"
++	kcpcorev1listers "github.com/kcp-dev/client-go/listers/core/v1"
+ 	"k8s.io/klog/v2"
+ 
+ 	v1 "k8s.io/api/core/v1"
+@@ -31,10 +35,7 @@ import (
+ 	utilcache "k8s.io/apimachinery/pkg/util/cache"
+ 	"k8s.io/apimachinery/pkg/util/sets"
+ 	"k8s.io/apiserver/pkg/admission"
+-	"k8s.io/apiserver/pkg/admission/initializer"
+-	"k8s.io/client-go/informers"
+-	"k8s.io/client-go/kubernetes"
+-	corelisters "k8s.io/client-go/listers/core/v1"
++	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+ 	"k8s.io/utils/clock"
+ )
+ 
+@@ -62,16 +63,16 @@ func Register(plugins *admission.Plugins) {
+ // It enforces life-cycle constraints around a Namespace depending on its Phase
+ type Lifecycle struct {
+ 	*admission.Handler
+-	client             kubernetes.Interface
++	client             kcpkubernetesclientset.ClusterInterface
+ 	immortalNamespaces sets.Set[string]
+-	namespaceLister    corelisters.NamespaceLister
++	namespaceLister    kcpcorev1listers.NamespaceClusterLister
+ 	// forceLiveLookupCache holds a list of entries for namespaces that we have a strong reason to believe are stale in our local cache.
+ 	// if a namespace is in this cache, then we will ignore our local state and always fetch latest from api server.
+ 	forceLiveLookupCache *utilcache.LRUExpireCache
+ }
+ 
+-var _ = initializer.WantsExternalKubeInformerFactory(&Lifecycle{})
+-var _ = initializer.WantsExternalKubeClientSet(&Lifecycle{})
++//var _ = initializer.WantsExternalKubeInformerFactory(&Lifecycle{})
++//var _ = initializer.WantsExternalKubeClientSet(&Lifecycle{})
+ 
+ // Admit makes an admission decision based on the request attributes
+ func (l *Lifecycle) Admit(ctx context.Context, a admission.Attributes, o admission.ObjectInterfaces) error {
+@@ -85,13 +86,19 @@ func (l *Lifecycle) Admit(ctx context.Context, a admission.Attributes, o admissi
+ 		return nil
+ 	}
+ 
++	clusterName, err := genericapirequest.ClusterNameFrom(ctx)
++	if err != nil {
++		return errors.NewInternalError(err)
++	}
++	namespaceKey := kcpcache.ToClusterAwareKey(clusterName.String(), "", a.GetName())
++
+ 	if a.GetKind().GroupKind() == v1.SchemeGroupVersion.WithKind("Namespace").GroupKind() {
+ 		// if a namespace is deleted, we want to prevent all further creates into it
+ 		// while it is undergoing termination.  to reduce incidences where the cache
+ 		// is slow to update, we add the namespace into a force live lookup list to ensure
+ 		// we are not looking at stale state.
+ 		if a.GetOperation() == admission.Delete {
+-			l.forceLiveLookupCache.Add(a.GetName(), true, forceLiveLookupTTL)
++			l.forceLiveLookupCache.Add(namespaceKey, true, forceLiveLookupTTL)
+ 		}
+ 		// allow all operations to namespaces
+ 		return nil
+@@ -114,10 +121,9 @@ func (l *Lifecycle) Admit(ctx context.Context, a admission.Attributes, o admissi
+ 
+ 	var (
+ 		exists bool
+-		err    error
+ 	)
+ 
+-	namespace, err := l.namespaceLister.Get(a.GetNamespace())
++	namespace, err := l.namespaceLister.Cluster(clusterName).Get(a.GetNamespace())
+ 	if err != nil {
+ 		if !errors.IsNotFound(err) {
+ 			return errors.NewInternalError(err)
+@@ -130,7 +136,7 @@ func (l *Lifecycle) Admit(ctx context.Context, a admission.Attributes, o admissi
+ 		// give the cache time to observe the namespace before rejecting a create.
+ 		// this helps when creating a namespace and immediately creating objects within it.
+ 		time.Sleep(missingNamespaceWait)
+-		namespace, err = l.namespaceLister.Get(a.GetNamespace())
++		namespace, err = l.namespaceLister.Cluster(clusterName).Get(a.GetNamespace())
+ 		switch {
+ 		case errors.IsNotFound(err):
+ 			// no-op
+@@ -146,7 +152,7 @@ func (l *Lifecycle) Admit(ctx context.Context, a admission.Attributes, o admissi
+ 
+ 	// forceLiveLookup if true will skip looking at local cache state and instead always make a live call to server.
+ 	forceLiveLookup := false
+-	if _, ok := l.forceLiveLookupCache.Get(a.GetNamespace()); ok {
++	if _, ok := l.forceLiveLookupCache.Get(namespaceKey); ok {
+ 		// we think the namespace was marked for deletion, but our current local cache says otherwise, we will force a live lookup.
+ 		forceLiveLookup = exists && namespace.Status.Phase == v1.NamespaceActive
+ 	}
+@@ -154,7 +160,7 @@ func (l *Lifecycle) Admit(ctx context.Context, a admission.Attributes, o admissi
+ 	// refuse to operate on non-existent namespaces
+ 	if !exists || forceLiveLookup {
+ 		// as a last resort, make a call directly to storage
+-		namespace, err = l.client.CoreV1().Namespaces().Get(context.TODO(), a.GetNamespace(), metav1.GetOptions{})
++		namespace, err = l.client.Cluster(clusterName.Path()).CoreV1().Namespaces().Get(ctx, a.GetNamespace(), metav1.GetOptions{})
+ 		switch {
+ 		case errors.IsNotFound(err):
+ 			return err
+@@ -200,14 +206,14 @@ func newLifecycleWithClock(immortalNamespaces sets.Set[string], clock utilcache.
+ }
+ 
+ // SetExternalKubeInformerFactory implements the WantsExternalKubeInformerFactory interface.
+-func (l *Lifecycle) SetExternalKubeInformerFactory(f informers.SharedInformerFactory) {
++func (l *Lifecycle) SetExternalKubeInformerFactory(f kcpkubernetesinformers.SharedInformerFactory) {
+ 	namespaceInformer := f.Core().V1().Namespaces()
+ 	l.namespaceLister = namespaceInformer.Lister()
+ 	l.SetReadyFunc(namespaceInformer.Informer().HasSynced)
+ }
+ 
+ // SetExternalKubeClientSet implements the WantsExternalKubeClientSet interface.
+-func (l *Lifecycle) SetExternalKubeClientSet(client kubernetes.Interface) {
++func (l *Lifecycle) SetExternalKubeClientSet(client kcpkubernetesclientset.ClusterInterface) {
+ 	l.client = client
+ }
+ 
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go
+new file mode 100644
+--- /dev/null
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go
+@@ -0,0 +1,18 @@
++package generic
++
++import (
++	coreinformers "k8s.io/client-go/informers/core/v1"
++	"k8s.io/client-go/tools/cache"
++)
++
++func (c *Plugin[H]) SetNamespaceInformer(i coreinformers.NamespaceInformer) {
++	c.namespaceInformer = i
++}
++
++func (c *Plugin[H]) SetPolicyInformer(i cache.SharedIndexInformer) {
++	c.policyInformer = i
++}
++
++func (c *Plugin[H]) SetBindingInformer(i cache.SharedIndexInformer) {
++	c.bindingInformer = i
++}
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission.go
+--- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission.go
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission.go
+@@ -159,10 +159,11 @@ func (a *QuotaAdmission) ValidateInitialization() error {
+ 
+ // Validate makes admission decisions while enforcing quota
+ func (a *QuotaAdmission) Validate(ctx context.Context, attr admission.Attributes, o admission.ObjectInterfaces) (err error) {
+-	// ignore all operations that are not namespaced or creation of namespaces
+-	if attr.GetNamespace() == "" || isNamespaceCreation(attr) {
+-		return nil
+-	}
++	// kcp edit: allow quota of cluster-scoped resources, so don't ignore them
++	// ~~~ignore all operations that are not namespaced or creation of namespaces~~~
++	// if attr.GetNamespace() == "" || isNamespaceCreation(attr) {
++	// 	return nil
++	// }
+ 	return a.evaluator.Evaluate(attr)
+ }
+ 
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission_kcp.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission_kcp.go
+new file mode 100644
+--- /dev/null
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission_kcp.go
+@@ -0,0 +1,32 @@
++/*
++Copyright 2022 The KCP Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package resourcequota
++
++import (
++	corev1listers "k8s.io/client-go/listers/core/v1"
++	cache "k8s.io/client-go/tools/cache"
++)
++
++// SetResourceQuotaLister sets the lister and indexer on the quotaAccessor. This is used by kcp to inject a lister and
++// indexer that are scoped to a single logical cluster. This replaces the need to use a.SetExternalKubeInformerFactory().
++func (a *QuotaAdmission) SetResourceQuotaLister(lister corev1listers.ResourceQuotaLister) {
++	a.quotaAccessor.lister = lister
++}
++
++func (a *QuotaAdmission) SetResourceQuotaInformer(informer cache.SharedIndexInformer) {
++	a.quotaAccessor.hasSynced = informer.HasSynced
++}
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/resource_access.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/resource_access.go
+--- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/resource_access.go
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/resource_access.go
+@@ -19,6 +19,7 @@ package resourcequota
+ import (
+ 	"context"
+ 	"fmt"
++	"strconv"
+ 	"time"
+ 
+ 	"golang.org/x/sync/singleflight"
+@@ -107,7 +108,42 @@ func (e *quotaAccessor) checkCache(quota *corev1.ResourceQuota) *corev1.Resource
+ 	return cachedQuota
+ }
+ 
++const (
++	kcpClusterScopedQuotaNamespace                 = "admin"
++	kcpExperimentalClusterScopedQuotaAnnotationKey = "experimental.quota.kcp.io/cluster-scoped"
++)
++
+ func (e *quotaAccessor) GetQuotas(namespace string) ([]corev1.ResourceQuota, error) {
++	possibleClusterScopedQuotas, err := e.lister.ResourceQuotas(kcpClusterScopedQuotaNamespace).List(labels.Everything())
++	if err != nil {
++		return nil, fmt.Errorf("error getting ResourceQuotas from namespace %q: %w", kcpClusterScopedQuotaNamespace, err)
++	}
++	// if there are no items held in our indexer, check our live-lookup LRU, if that misses, do the live lookup to prime it.
++	if len(possibleClusterScopedQuotas) == 0 {
++		lruItemObj, ok := e.liveLookupCache.Get(kcpClusterScopedQuotaNamespace)
++		if !ok || lruItemObj.(liveLookupEntry).expiry.Before(time.Now()) {
++			// TODO: If there are multiple operations at the same time and cache has just expired,
++			// this may cause multiple List operations being issued at the same time.
++			// If there is already in-flight List() for a given namespace, we should wait until
++			// it is finished and cache is updated instead of doing the same, also to avoid
++			// throttling - see #22422 for details.
++			liveList, err := e.client.CoreV1().ResourceQuotas(kcpClusterScopedQuotaNamespace).List(context.TODO(), metav1.ListOptions{})
++			if err != nil {
++				return nil, err
++			}
++			newEntry := liveLookupEntry{expiry: time.Now().Add(e.liveTTL)}
++			for i := range liveList.Items {
++				newEntry.items = append(newEntry.items, &liveList.Items[i])
++			}
++			e.liveLookupCache.Add(kcpClusterScopedQuotaNamespace, newEntry)
++			lruItemObj = newEntry
++		}
++		lruEntry := lruItemObj.(liveLookupEntry)
++		for i := range lruEntry.items {
++			possibleClusterScopedQuotas = append(possibleClusterScopedQuotas, lruEntry.items[i])
++		}
++	}
++
+ 	// determine if there are any quotas in this namespace
+ 	// if there are no quotas, we don't need to do anything
+ 	items, err := e.lister.ResourceQuotas(namespace).List(labels.Everything())
+@@ -143,6 +179,19 @@ func (e *quotaAccessor) GetQuotas(namespace string) ([]corev1.ResourceQuota, err
+ 		}
+ 	}
+ 
++	for i := range possibleClusterScopedQuotas {
++		candidate := possibleClusterScopedQuotas[i]
++
++		a := candidate.Annotations[kcpExperimentalClusterScopedQuotaAnnotationKey]
++		if a == "" {
++			continue
++		}
++
++		if clusterScoped, _ := strconv.ParseBool(a); clusterScoped {
++			items = append(items, candidate)
++		}
++	}
++
+ 	resourceQuotas := []corev1.ResourceQuota{}
+ 	for i := range items {
+ 		quota := items[i]
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook_kcp.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook_kcp.go
+new file mode 100644
+--- /dev/null
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook_kcp.go
+@@ -0,0 +1,19 @@
++package generic
++
++import (
++	coreinformers "k8s.io/client-go/informers/core/v1"
++)
++
++func (a *Webhook) SetNamespaceInformer(namespaceInformer coreinformers.NamespaceInformer) {
++	a.namespaceMatcher.NamespaceLister = namespaceInformer.Lister()
++}
++
++func (a *Webhook) SetHookSource(hookSource Source) {
++	a.hookSource = hookSource
++}
++
++func (a *Webhook) SetReadyFuncFromKCP(namespaceInformer coreinformers.NamespaceInformer) {
++	a.SetReadyFunc(func() bool {
++		return namespaceInformer.Informer().HasSynced() && a.hookSource.HasSynced()
++	})
++}
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/mutating/dispatcher_kcp.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/mutating/dispatcher_kcp.go
+new file mode 100644
+--- /dev/null
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/mutating/dispatcher_kcp.go
+@@ -0,0 +1,27 @@
++/*
++Copyright 2022 The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package mutating
++
++import (
++	"k8s.io/apiserver/pkg/admission/plugin/webhook/generic"
++	webhookutil "k8s.io/apiserver/pkg/util/webhook"
++)
++
++// NewMutatingDispatcher makes newMutatingDispatcher public for external use.
++func NewMutatingDispatcher(p *Plugin) func(cm *webhookutil.ClientManager) generic.Dispatcher {
++	return newMutatingDispatcher(p)
++}
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/validating/dispatcher_kcp.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/validating/dispatcher_kcp.go
+new file mode 100644
+--- /dev/null
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/validating/dispatcher_kcp.go
+@@ -0,0 +1,27 @@
++/*
++Copyright 2022 The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package validating
++
++import (
++	"k8s.io/apiserver/pkg/admission/plugin/webhook/generic"
++	webhookutil "k8s.io/apiserver/pkg/util/webhook"
++)
++
++// NewValidatingDispatcher makes newValidatingDispatcher public for external use.
++func NewValidatingDispatcher(p *Plugin) func(cm *webhookutil.ClientManager) generic.Dispatcher {
++	return newValidatingDispatcher(p)
++}

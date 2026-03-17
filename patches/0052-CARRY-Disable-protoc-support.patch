@@ -1,0 +1,91 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mangirdas Judeikis <mangirdas@judeikis.lt>
+Date: Mon, 8 Dec 2025 11:23:02 +0200
+Subject: [PATCH] CARRY: Disable protoc support
+
+---
+ hack/update-codegen.sh                                       | 1 -
+ pkg/controlplane/apiserver/config.go                         | 5 -----
+ .../k8s.io/apiextensions-apiserver/hack/update-codegen.sh    | 1 -
+ staging/src/k8s.io/client-go/gentype/type.go                 | 2 +-
+ staging/src/k8s.io/code-generator/kube_codegen.sh            | 1 -
+ staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh    | 1 -
+ staging/src/k8s.io/metrics/hack/update-codegen.sh            | 1 -
+ 7 files changed, 1 insertion(+), 11 deletions(-)
+
+diff --git a/hack/update-codegen.sh b/hack/update-codegen.sh
+--- a/hack/update-codegen.sh
++++ b/hack/update-codegen.sh
+@@ -798,7 +798,6 @@ function codegen::clients() {
+         --input-base="k8s.io/api" \
+         --plural-exceptions "${PLURAL_EXCEPTIONS}" \
+         --apply-configuration-package "${APPLYCONFIG_PKG}" \
+-        --prefers-protobuf \
+         $(printf -- " --input %s" "${gv_dirs[@]}") \
+         "$@"
+ 
+diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/config.go
+--- a/pkg/controlplane/apiserver/config.go
++++ b/pkg/controlplane/apiserver/config.go
+@@ -144,11 +144,6 @@ func BuildGenericConfig(
+ 		return
+ 	}
+ 
+-	// Use protobufs for self-communication.
+-	// Since not every generic apiserver has to support protobufs, we
+-	// cannot default to it in generic apiserver and need to explicitly
+-	// set it in kube-apiserver.
+-	genericConfig.LoopbackClientConfig.ContentConfig.ContentType = "application/vnd.kubernetes.protobuf"
+ 	// Disable compression for self-communication, since we are going to be
+ 	// on a fast local network
+ 	genericConfig.LoopbackClientConfig.DisableCompression = true
+diff --git a/staging/src/k8s.io/apiextensions-apiserver/hack/update-codegen.sh b/staging/src/k8s.io/apiextensions-apiserver/hack/update-codegen.sh
+--- a/staging/src/k8s.io/apiextensions-apiserver/hack/update-codegen.sh
++++ b/staging/src/k8s.io/apiextensions-apiserver/hack/update-codegen.sh
+@@ -53,5 +53,4 @@ kube::codegen::gen_client \
+     --output-pkg "${THIS_PKG}/pkg/client" \
+     --versioned-name "clientset" \
+     --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt" \
+-    --prefers-protobuf \
+     "${SCRIPT_ROOT}/pkg/apis"
+diff --git a/staging/src/k8s.io/client-go/gentype/type.go b/staging/src/k8s.io/client-go/gentype/type.go
+--- a/staging/src/k8s.io/client-go/gentype/type.go
++++ b/staging/src/k8s.io/client-go/gentype/type.go
+@@ -84,7 +84,7 @@ type alsoApplier[T objectWithMeta, C namedObject] struct {
+ type Option[T objectWithMeta] func(*Client[T])
+ 
+ func PrefersProtobuf[T objectWithMeta]() Option[T] {
+-	return func(c *Client[T]) { c.prefersProtobuf = true }
++	return func(c *Client[T]) { c.prefersProtobuf = false }
+ }
+ 
+ // NewClient constructs a client, namespaced or not, with no support for lists or apply.
+diff --git a/staging/src/k8s.io/code-generator/kube_codegen.sh b/staging/src/k8s.io/code-generator/kube_codegen.sh
+--- a/staging/src/k8s.io/code-generator/kube_codegen.sh
++++ b/staging/src/k8s.io/code-generator/kube_codegen.sh
+@@ -722,7 +722,6 @@ function kube::codegen::gen_client() {
+         --apply-configuration-package "${applyconfig_pkg}" \
+         --input-base "$(cd "${in_dir}" && pwd -P)" `# must be absolute path or Go import path"` \
+         --plural-exceptions "${plural_exceptions}" \
+-        --prefers-protobuf="${prefers_protobuf}" \
+         "${inputs[@]}"
+ 
+     if [ "${watchable}" == "true" ]; then
+diff --git a/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh b/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh
+--- a/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh
++++ b/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh
+@@ -54,5 +54,4 @@ kube::codegen::gen_client \
+     --clientset-name "clientset_generated" \
+     --versioned-name "clientset" \
+     --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt" \
+-    --prefers-protobuf \
+     "${SCRIPT_ROOT}/pkg/apis"
+diff --git a/staging/src/k8s.io/metrics/hack/update-codegen.sh b/staging/src/k8s.io/metrics/hack/update-codegen.sh
+--- a/staging/src/k8s.io/metrics/hack/update-codegen.sh
++++ b/staging/src/k8s.io/metrics/hack/update-codegen.sh
+@@ -36,5 +36,4 @@ kube::codegen::gen_client \
+     --output-dir "${SCRIPT_ROOT}/pkg/client" \
+     --output-pkg "${THIS_PKG}/pkg/client" \
+     --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt" \
+-    --prefers-protobuf \
+     "${SCRIPT_ROOT}/pkg/apis"

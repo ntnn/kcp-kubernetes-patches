@@ -1,0 +1,222 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
+Date: Wed, 27 Sep 2023 14:43:38 +0200
+Subject: [PATCH] UPSTREAM: <carry>: storage: etcd cluster key computation
+
+Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+---
+ .../pkg/registry/generic/registry/store.go    | 39 +++++++++++++++----
+ .../pkg/registry/rest/resttest/resttest.go    | 19 +++++++--
+ 2 files changed, 47 insertions(+), 11 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
+--- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
++++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
+@@ -264,10 +264,25 @@ const (
+ 	resourceCountPollPeriodJitter = 1.2
+ )
+ 
++// NoNamespaceKeyRootFunc is the default function for constructing storage paths
++// to resource directories enforcing namespace rules.
++func NoNamespaceKeyRootFunc(ctx context.Context, prefix string) string {
++	key := prefix
++	cluster, err := genericapirequest.ValidClusterFrom(ctx)
++	if err != nil {
++		klog.Errorf("invalid context cluster value: %v", err)
++		return key
++	}
++	if !cluster.Wildcard {
++		key += "/" + cluster.Name.String()
++	}
++	return key
++}
++
+ // NamespaceKeyRootFunc is the default function for constructing storage paths
+ // to resource directories enforcing namespace rules.
+ func NamespaceKeyRootFunc(ctx context.Context, prefix string) string {
+-	key := prefix
++	key := NoNamespaceKeyRootFunc(ctx, prefix)
+ 	ns, ok := genericapirequest.NamespaceFrom(ctx)
+ 	if ok && len(ns) > 0 {
+ 		key = key + "/" + ns
+@@ -279,7 +294,6 @@ func NamespaceKeyRootFunc(ctx context.Context, prefix string) string {
+ // a resource relative to the given prefix enforcing namespace rules. If the
+ // context does not contain a namespace, it errors.
+ func NamespaceKeyFunc(ctx context.Context, prefix string, name string) (string, error) {
+-	key := NamespaceKeyRootFunc(ctx, prefix)
+ 	ns, ok := genericapirequest.NamespaceFrom(ctx)
+ 	if !ok || len(ns) == 0 {
+ 		return "", apierrors.NewBadRequest("Namespace parameter required.")
+@@ -290,8 +304,7 @@ func NamespaceKeyFunc(ctx context.Context, prefix string, name string) (string,
+ 	if msgs := content.IsPathSegmentName(name); len(msgs) != 0 {
+ 		return "", apierrors.NewBadRequest(fmt.Sprintf("Name parameter invalid: %q: %s", name, strings.Join(msgs, ";")))
+ 	}
+-	key = key + "/" + name
+-	return key, nil
++	return NoNamespaceKeyRootFunc(ctx, prefix) + "/" + ns + "/" + name, nil
+ }
+ 
+ // NoNamespaceKeyFunc is the default function for constructing storage paths
+@@ -303,8 +316,7 @@ func NoNamespaceKeyFunc(ctx context.Context, prefix string, name string) (string
+ 	if msgs := content.IsPathSegmentName(name); len(msgs) != 0 {
+ 		return "", apierrors.NewBadRequest(fmt.Sprintf("Name parameter invalid: %q: %s", name, strings.Join(msgs, ";")))
+ 	}
+-	key := prefix + "/" + name
+-	return key, nil
++	return NoNamespaceKeyRootFunc(ctx, prefix) + "/" + name, nil
+ }
+ 
+ // New implements RESTStorage.New.
+@@ -486,7 +498,8 @@ func (e *Store) create(ctx context.Context, obj runtime.Object, createValidation
+ 	var finishCreate FinishFunc = finishNothing
+ 
+ 	// Init metadata as early as possible.
+-	if objectMeta, err := meta.Accessor(obj); err != nil {
++	objectMeta, err := meta.Accessor(obj)
++	if err != nil {
+ 		return nil, err
+ 	} else {
+ 		rest.FillObjectMetaSystemFields(objectMeta)
+@@ -1526,6 +1539,9 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
+ 	if (e.KeyRootFunc == nil) != (e.KeyFunc == nil) {
+ 		return fmt.Errorf("store for %s must set both KeyRootFunc and KeyFunc or neither", e.DefaultQualifiedResource.String())
+ 	}
++	if e.KeyFunc != nil || e.KeyFunc != nil {
++		return fmt.Errorf("DEBUG: keyfunc must be non-nil for all resources", e.DefaultQualifiedResource.String())
++	}
+ 
+ 	if e.TableConvertor == nil {
+ 		return fmt.Errorf("store for %s must set TableConvertor; rest.NewDefaultTableConvertor(e.DefaultQualifiedResource) can be used to output just name/creation time", e.DefaultQualifiedResource.String())
+@@ -1586,6 +1602,13 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
+ 		return fmt.Errorf("store for %s has an invalid prefix %q", e.DefaultQualifiedResource.String(), opts.ResourcePrefix)
+ 	}
+ 
++	if e.KeyFunc != nil {
++		panic(fmt.Sprintf("KeyFunc is illegal for %v: %T", e.DefaultQualifiedResource, e.KeyFunc))
++	}
++	if e.KeyRootFunc != nil {
++		panic(fmt.Sprintf("KeyRootFunc is illegal for %v: %T", e.DefaultQualifiedResource, e.KeyRootFunc))
++	}
++
+ 	// Set the default behavior for storage key generation
+ 	if e.KeyRootFunc == nil && e.KeyFunc == nil {
+ 		if isNamespaced {
+@@ -1597,7 +1620,7 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
+ 			}
+ 		} else {
+ 			e.KeyRootFunc = func(ctx context.Context) string {
+-				return prefix
++				return NoNamespaceKeyRootFunc(ctx, prefix)
+ 			}
+ 			e.KeyFunc = func(ctx context.Context, name string) (string, error) {
+ 				return NoNamespaceKeyFunc(ctx, prefix, name)
+diff --git a/staging/src/k8s.io/apiserver/pkg/registry/rest/resttest/resttest.go b/staging/src/k8s.io/apiserver/pkg/registry/rest/resttest/resttest.go
+--- a/staging/src/k8s.io/apiserver/pkg/registry/rest/resttest/resttest.go
++++ b/staging/src/k8s.io/apiserver/pkg/registry/rest/resttest/resttest.go
+@@ -25,6 +25,7 @@ import (
+ 	"testing"
+ 	"time"
+ 
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	apiequality "k8s.io/apimachinery/pkg/api/equality"
+ 	"k8s.io/apimachinery/pkg/api/errors"
+ 	"k8s.io/apimachinery/pkg/api/meta"
+@@ -116,6 +117,10 @@ func (t *Tester) SetUserInfo(userInfo user.Info) {
+ 	t.userInfo = userInfo
+ }
+ 
++func (t *Tester) TestCluster() logicalcluster.Name {
++	return logicalcluster.New("root")
++}
++
+ // TestContext returns a namespaced context that will be used when making storage calls.
+ // Namespace is determined by TestNamespace()
+ func (t *Tester) TestContext() context.Context {
+@@ -127,7 +132,7 @@ func (t *Tester) TestContext() context.Context {
+ 	if t.requestInfo != nil {
+ 		ctx = genericapirequest.WithRequestInfo(ctx, t.requestInfo)
+ 	}
+-	return ctx
++	return genericapirequest.WithCluster(genericapirequest.WithNamespace(genericapirequest.NewContext(), t.TestNamespace()), genericapirequest.Cluster{Name: t.TestCluster()})
+ }
+ 
+ func (t *Tester) getObjectMetaOrFail(obj runtime.Object) metav1.Object {
+@@ -336,6 +341,7 @@ func (t *Tester) testCreateDryRunEquals(obj runtime.Object) {
+ 	createdFakeMeta.SetResourceVersion("")
+ 	createdMeta.SetResourceVersion("")
+ 	createdMeta.SetUID(createdFakeMeta.GetUID())
++	createdMeta.SetZZZ_DeprecatedClusterName(createdFakeMeta.GetZZZ_DeprecatedClusterName())
+ 
+ 	if e, a := created, createdFake; !apiequality.Semantic.DeepEqual(e, a) {
+ 		t.Errorf("unexpected obj: %#v, expected %#v", e, a)
+@@ -363,6 +369,7 @@ func (t *Tester) testCreateEquals(obj runtime.Object, getFn GetFunc) {
+ 	createdMeta := t.getObjectMetaOrFail(created)
+ 	gotMeta := t.getObjectMetaOrFail(got)
+ 	createdMeta.SetResourceVersion(gotMeta.GetResourceVersion())
++	createdMeta.SetZZZ_DeprecatedClusterName(gotMeta.GetZZZ_DeprecatedClusterName())
+ 
+ 	if e, a := created, got; !apiequality.Semantic.DeepEqual(e, a) {
+ 		t.Errorf("unexpected obj: %#v, expected %#v", e, a)
+@@ -425,6 +432,7 @@ func (t *Tester) testCreateHasMetadata(valid runtime.Object) {
+ func (t *Tester) testCreateIgnoresContextNamespace(valid runtime.Object, opts metav1.CreateOptions) {
+ 	// Ignore non-empty namespace in context
+ 	ctx := genericapirequest.WithNamespace(genericapirequest.NewContext(), "not-default2")
++	ctx = genericapirequest.WithNamespace(genericapirequest.WithCluster(ctx, genericapirequest.Cluster{Name: t.TestCluster()}), "not-default2")
+ 	if t.requestInfo != nil {
+ 		ctx = genericapirequest.WithRequestInfo(ctx, t.requestInfo)
+ 	}
+@@ -447,6 +455,7 @@ func (t *Tester) testCreateIgnoresMismatchedNamespace(valid runtime.Object, opts
+ 	// Ignore non-empty namespace in object meta
+ 	objectMeta.SetNamespace("not-default")
+ 	ctx := genericapirequest.WithNamespace(genericapirequest.NewContext(), "not-default2")
++	ctx = genericapirequest.WithNamespace(genericapirequest.WithCluster(ctx, genericapirequest.Cluster{Name: t.TestCluster()}), "not-default2")
+ 	if t.requestInfo != nil {
+ 		ctx = genericapirequest.WithRequestInfo(ctx, t.requestInfo)
+ 	}
+@@ -1195,6 +1204,7 @@ func (t *Tester) testGetDifferentNamespace(obj runtime.Object) {
+ 	objMeta.SetName(t.namer(5))
+ 
+ 	ctx1 := genericapirequest.WithNamespace(genericapirequest.NewContext(), "bar3")
++	ctx1 = genericapirequest.WithNamespace(genericapirequest.WithCluster(ctx1, genericapirequest.Cluster{Name: t.TestCluster()}), "bar3")
+ 	if t.requestInfo != nil {
+ 		ctx1 = genericapirequest.WithRequestInfo(ctx1, t.requestInfo)
+ 	}
+@@ -1205,6 +1215,7 @@ func (t *Tester) testGetDifferentNamespace(obj runtime.Object) {
+ 	}
+ 
+ 	ctx2 := genericapirequest.WithNamespace(genericapirequest.NewContext(), "bar4")
++	ctx2 = genericapirequest.WithNamespace(genericapirequest.WithCluster(ctx2, genericapirequest.Cluster{Name: t.TestCluster()}), "bar4")
+ 	if t.requestInfo != nil {
+ 		ctx2 = genericapirequest.WithRequestInfo(ctx2, t.requestInfo)
+ 	}
+@@ -1262,10 +1273,12 @@ func (t *Tester) testGetFound(obj runtime.Object) {
+ 
+ func (t *Tester) testGetMimatchedNamespace(obj runtime.Object) {
+ 	ctx1 := genericapirequest.WithNamespace(genericapirequest.NewContext(), "bar1")
++	ctx1 = genericapirequest.WithNamespace(genericapirequest.WithCluster(ctx1, genericapirequest.Cluster{Name: t.TestCluster()}), "bar1")
+ 	if t.requestInfo != nil {
+ 		ctx1 = genericapirequest.WithRequestInfo(ctx1, t.requestInfo)
+ 	}
+ 	ctx2 := genericapirequest.WithNamespace(genericapirequest.NewContext(), "bar2")
++	ctx2 = genericapirequest.WithNamespace(genericapirequest.WithCluster(ctx2, genericapirequest.Cluster{Name: t.TestCluster()}), "bar2")
+ 	if t.requestInfo != nil {
+ 		ctx2 = genericapirequest.WithRequestInfo(ctx2, t.requestInfo)
+ 	}
+@@ -1361,7 +1374,7 @@ func (t *Tester) testListMatchLabels(obj runtime.Object, assignFn AssignFunc) {
+ 	foo4Meta.SetNamespace(genericapirequest.NamespaceValue(ctx))
+ 	foo4Meta.SetLabels(testLabels)
+ 
+-	objs := ([]runtime.Object{foo3, foo4})
++	objs := []runtime.Object{foo3, foo4}
+ 
+ 	assignFn(objs)
+ 	filtered := []runtime.Object{objs[1]}
+@@ -1415,7 +1428,7 @@ func (t *Tester) testListTableConversion(obj runtime.Object, assignFn AssignFunc
+ 	foo4Meta.SetNamespace(genericapirequest.NamespaceValue(ctx))
+ 	foo4Meta.SetLabels(testLabels)
+ 
+-	objs := ([]runtime.Object{foo3, foo4})
++	objs := []runtime.Object{foo3, foo4}
+ 
+ 	assignFn(objs)
+ 

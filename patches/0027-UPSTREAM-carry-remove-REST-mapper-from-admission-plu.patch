@@ -1,0 +1,135 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Marvin Beckers <marvin@kubermatic.com>
+Date: Thu, 20 Jun 2024 14:28:07 +0200
+Subject: [PATCH] UPSTREAM: <carry>: remove REST mapper from admission plugins
+
+Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
+---
+ .../apiserver/customresource_handler_test.go  |  4 ++--
+ .../apiserver/pkg/server/options/admission.go | 19 +------------------
+ .../storage/cacher/watch_cache_kcp_test.go    | 12 ++++++------
+ 3 files changed, 9 insertions(+), 26 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_test.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_test.go
+--- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_test.go
++++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_test.go
+@@ -515,7 +515,7 @@ func testHandlerConversion(t *testing.T, enableWatchCache bool) {
+ 		&noneConverterFactory{},
+ 		1,
+ 		dummyAuthorizerImpl{},
+-		time.Minute, time.Minute, nil, 3*1024*1024)
++		time.Minute, time.Minute, nil, 3*1024*1024, true)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+@@ -1038,7 +1038,7 @@ func TestBuildOpenAPIModelsForApply(t *testing.T) {
+ 
+ 	for i, test := range tests {
+ 		crd.Spec.Versions[0].Schema = &test
+-		models, err := buildOpenAPIModelsForApply(convertedDefs, &crd)
++		models, err := buildOpenAPIModelsForApply(convertedDefs, &crd, true)
+ 		if err != nil {
+ 			t.Fatalf("failed to convert to apply model: %v", err)
+ 		}
+diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/admission.go b/staging/src/k8s.io/apiserver/pkg/server/options/admission.go
+--- a/staging/src/k8s.io/apiserver/pkg/server/options/admission.go
++++ b/staging/src/k8s.io/apiserver/pkg/server/options/admission.go
+@@ -19,14 +19,12 @@ package options
+ import (
+ 	"fmt"
+ 	"strings"
+-	"time"
+ 
+ 	"github.com/spf13/pflag"
+ 
+ 	"k8s.io/apimachinery/pkg/runtime"
+ 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+ 	"k8s.io/apimachinery/pkg/util/sets"
+-	utilwait "k8s.io/apimachinery/pkg/util/wait"
+ 	"k8s.io/apiserver/pkg/admission"
+ 	"k8s.io/apiserver/pkg/admission/initializer"
+ 	admissionmetrics "k8s.io/apiserver/pkg/admission/metrics"
+@@ -39,11 +37,9 @@ import (
+ 	apiserverapiv1 "k8s.io/apiserver/pkg/apis/apiserver/v1"
+ 	apiserverapiv1alpha1 "k8s.io/apiserver/pkg/apis/apiserver/v1alpha1"
+ 	"k8s.io/apiserver/pkg/server"
+-	cacheddiscovery "k8s.io/client-go/discovery/cached/memory"
+ 	"k8s.io/client-go/dynamic"
+ 	"k8s.io/client-go/informers"
+ 	"k8s.io/client-go/kubernetes"
+-	"k8s.io/client-go/restmapper"
+ 	"k8s.io/component-base/compatibility"
+ 	"k8s.io/component-base/featuregate"
+ )
+@@ -153,24 +149,11 @@ func (a *AdmissionOptions) ApplyTo(
+ 		return fmt.Errorf("failed to read plugin config: %v", err)
+ 	}
+ 
+-	discoveryClient := cacheddiscovery.NewMemCacheClient(kubeClient.Discovery())
+-	discoveryRESTMapper := restmapper.NewDeferredDiscoveryRESTMapper(discoveryClient)
+ 	genericInitializer := initializer.New(kubeClient, dynamicClient, informers, c.Authorization.Authorizer, features,
+-		effectiveVersion, c.DrainedNotify(), discoveryRESTMapper)
++		effectiveVersion, c.DrainedNotify(), nil)
+ 	initializersChain := admission.PluginInitializers{initializer.NewAPIServerIDInitializer(c.APIServerID), genericInitializer}
+ 	initializersChain = append(initializersChain, pluginInitializers...)
+ 
+-	admissionPostStartHook := func(hookContext server.PostStartHookContext) error {
+-		discoveryRESTMapper.Reset()
+-		go utilwait.Until(discoveryRESTMapper.Reset, 30*time.Second, hookContext.Done())
+-		return nil
+-	}
+-
+-	err = c.AddPostStartHook("start-apiserver-admission-initializer", admissionPostStartHook)
+-	if err != nil {
+-		return fmt.Errorf("failed to add post start hook for policy admission: %w", err)
+-	}
+-
+ 	admissionChain, err := a.Plugins.NewFromPlugins(pluginNames, pluginsConfigProvider, initializersChain, a.Decorators)
+ 	if err != nil {
+ 		return err
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_test.go
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_test.go
+@@ -37,7 +37,7 @@ func TestCreateClusterAwareContext(t *testing.T) {
+ 		{
+ 			name:            "scoped, built-in type",
+ 			existingObject:  makePod("pod1", "root:org:abc", "default"),
+-			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.New("root:org:abc")},
++			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.Name("root:org:abc")},
+ 		},
+ 		{
+ 			name: "cluster wide, built-in type",
+@@ -46,28 +46,28 @@ func TestCreateClusterAwareContext(t *testing.T) {
+ 				p.Namespace = ""
+ 				return p
+ 			}(),
+-			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.New("root:org:abc")},
++			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.Name("root:org:abc")},
+ 		},
+ 		{
+ 			name:            "scoped, identity, built-in type",
+ 			existingObject:  makePod("pod1", "root:org:abc", "default"),
+-			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.New("root:org:abc")},
++			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.Name("root:org:abc")},
+ 		},
+ 
+ 		{
+ 			name:            "scoped, unstructured type",
+ 			existingObject:  makeUnstructured("root:org:abc", "default"),
+-			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.New("root:org:abc")},
++			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.Name("root:org:abc")},
+ 		},
+ 		{
+ 			name:            "cluster wide, unstructured type",
+ 			existingObject:  makeUnstructured("root:org:abc", ""),
+-			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.New("root:org:abc")},
++			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.Name("root:org:abc")},
+ 		},
+ 		{
+ 			name:            "scoped, identity, unstructured type",
+ 			existingObject:  makeUnstructured("root:org:abc", "default"),
+-			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.New("root:org:abc")},
++			expectedCluster: genericapirequest.Cluster{Name: logicalcluster.Name("root:org:abc")},
+ 		},
+ 	}
+ 

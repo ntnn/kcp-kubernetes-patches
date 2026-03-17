@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Wed, 10 Sep 2025 16:22:34 +0200
+Subject: [PATCH] UPSTREAM: <carry>: Add authentication.kcp.io/scopes to
+ service accounts
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../k8s.io/apiserver/pkg/authentication/serviceaccount/util.go | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go b/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go
+--- a/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go
++++ b/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go
+@@ -52,6 +52,8 @@ const (
+ 	NodeUIDKey = "authentication.kubernetes.io/node-uid"
+ 	// ClusterNameKey is the logical cluster name this service-account comes from.
+ 	ClusterNameKey = "authentication.kcp.io/cluster-name"
++	// ClusterScopeKey additionally sets the scope for the service-account to the cluster it belongs to.
++	ClusterScopeKey = "authentication.kcp.io/scopes"
+ )
+ 
+ // MakeUsername generates a username from the given namespace and ServiceAccount name.
+@@ -170,6 +172,7 @@ func (sa *ServiceAccountInfo) UserInfo() user.Info {
+ 		info.Extra = map[string][]string{}
+ 	}
+ 	info.Extra[ClusterNameKey] = []string{sa.ClusterName.String()}
++	info.Extra[ClusterScopeKey] = []string{"cluster:" + sa.ClusterName.String()}
+ 	return info
+ }
+ 

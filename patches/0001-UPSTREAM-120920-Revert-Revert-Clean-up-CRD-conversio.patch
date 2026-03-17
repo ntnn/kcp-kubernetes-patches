@@ -1,0 +1,3581 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
+Date: Mon, 11 Sep 2023 17:56:15 +0200
+Subject: [PATCH] UPSTREAM: 120920: Revert: Revert: Clean up CRD conversion
+ code structure
+
+Previous PRs: 113151 117301
+
+Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+
+Co-authored-by: Mangirdas Judeikis <mangirdas@judeikis.lt>
+Co-authored-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+Signed-off-by: Mangirdas Judeikis <mangirdas@judeikis.lt>
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ cmd/kube-apiserver/app/config.go              |   11 +-
+ pkg/controlplane/apiserver/apiextensions.go   |    8 +-
+ .../samples/generic/server/config.go          |    7 +-
+ .../pkg/apiserver/apiserver.go                |   11 +-
+ .../pkg/apiserver/conversion/converter.go     |  339 ++++-
+ .../apiserver/conversion/converter_test.go    |  680 +++++++++-
+ .../pkg/apiserver/conversion/metrics.go       |   10 +-
+ .../pkg/apiserver/conversion/nop_converter.go |   23 +-
+ .../apiserver/conversion/webhook_converter.go |  286 +---
+ .../conversion/webhook_converter_test.go      |   86 +-
+ .../pkg/apiserver/customresource_handler.go   |   25 +-
+ .../apiserver/customresource_handler_test.go  |   25 +-
+ .../pkg/cmd/server/options/options.go         |   14 +-
+ .../apiserver/fixtures-117260/apply.yaml      |   10 +
+ .../apiserver/fixtures-117260/crd.yaml        | 1175 +++++++++++++++++
+ .../apiserver/fixtures-117260/etcd.json       |  118 ++
+ .../apiserver/issue-117260_test.go            |  128 ++
+ 17 files changed, 2487 insertions(+), 469 deletions(-)
+ create mode 100644 test/integration/apiserver/fixtures-117260/apply.yaml
+ create mode 100644 test/integration/apiserver/fixtures-117260/crd.yaml
+ create mode 100644 test/integration/apiserver/fixtures-117260/etcd.json
+ create mode 100644 test/integration/apiserver/issue-117260_test.go
+
+diff --git a/cmd/kube-apiserver/app/config.go b/cmd/kube-apiserver/app/config.go
+--- a/cmd/kube-apiserver/app/config.go
++++ b/cmd/kube-apiserver/app/config.go
+@@ -18,11 +18,11 @@ package app
+ 
+ import (
+ 	apiextensionsapiserver "k8s.io/apiextensions-apiserver/pkg/apiserver"
++	"k8s.io/apiextensions-apiserver/pkg/apiserver/conversion"
+ 	"k8s.io/apimachinery/pkg/runtime"
+ 	"k8s.io/apiserver/pkg/util/webhook"
+ 	aggregatorapiserver "k8s.io/kube-aggregator/pkg/apiserver"
+ 	aggregatorscheme "k8s.io/kube-aggregator/pkg/apiserver/scheme"
+-
+ 	"k8s.io/kubernetes/cmd/kube-apiserver/app/options"
+ 	"k8s.io/kubernetes/pkg/api/legacyscheme"
+ 	"k8s.io/kubernetes/pkg/controlplane"
+@@ -92,8 +92,13 @@ func NewConfig(opts options.CompletedOptions) (*Config, error) {
+ 	}
+ 	c.KubeAPIs = kubeAPIs
+ 
+-	apiExtensions, err := controlplaneapiserver.CreateAPIExtensionsConfig(*kubeAPIs.ControlPlane.Generic, kubeAPIs.ControlPlane.VersionedInformers, pluginInitializer, opts.CompletedOptions, opts.MasterCount,
+-		serviceResolver, webhook.NewDefaultAuthenticationInfoResolverWrapper(kubeAPIs.ControlPlane.ProxyTransport, kubeAPIs.ControlPlane.Generic.EgressSelector, kubeAPIs.ControlPlane.Generic.LoopbackClientConfig, kubeAPIs.ControlPlane.Generic.TracerProvider))
++	authInfoResolver := webhook.NewDefaultAuthenticationInfoResolverWrapper(kubeAPIs.ControlPlane.ProxyTransport, kubeAPIs.ControlPlane.Generic.EgressSelector, kubeAPIs.ControlPlane.Generic.LoopbackClientConfig, kubeAPIs.ControlPlane.Generic.TracerProvider)
++	conversionFactory, err := conversion.NewCRConverterFactory(serviceResolver, authInfoResolver)
++	if err != nil {
++		return nil, err
++	}
++
++	apiExtensions, err := controlplaneapiserver.CreateAPIExtensionsConfig(*kubeAPIs.ControlPlane.Generic, kubeAPIs.ControlPlane.VersionedInformers, pluginInitializer, opts.CompletedOptions, opts.MasterCount, conversionFactory)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/pkg/controlplane/apiserver/apiextensions.go b/pkg/controlplane/apiserver/apiextensions.go
+--- a/pkg/controlplane/apiserver/apiextensions.go
++++ b/pkg/controlplane/apiserver/apiextensions.go
+@@ -20,12 +20,12 @@ import (
+ 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+ 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+ 	apiextensionsapiserver "k8s.io/apiextensions-apiserver/pkg/apiserver"
++	"k8s.io/apiextensions-apiserver/pkg/apiserver/conversion"
+ 	apiextensionsoptions "k8s.io/apiextensions-apiserver/pkg/cmd/server/options"
+ 	"k8s.io/apimachinery/pkg/runtime"
+ 	"k8s.io/apimachinery/pkg/runtime/schema"
+ 	"k8s.io/apiserver/pkg/admission"
+ 	"k8s.io/apiserver/pkg/server"
+-	"k8s.io/apiserver/pkg/util/webhook"
+ 	"k8s.io/client-go/informers"
+ 
+ 	"k8s.io/kubernetes/pkg/controlplane/apiserver/options"
+@@ -37,8 +37,7 @@ func CreateAPIExtensionsConfig(
+ 	pluginInitializers []admission.PluginInitializer,
+ 	commandOptions options.CompletedOptions,
+ 	masterCount int,
+-	serviceResolver webhook.ServiceResolver,
+-	authResolverWrapper webhook.AuthenticationInfoResolverWrapper,
++	conversionFactory conversion.Factory,
+ ) (*apiextensionsapiserver.Config, error) {
+ 	// make a shallow copy to let us twiddle a few things
+ 	// most of the config actually remains the same.  We only need to mess with a couple items related to the particulars of the apiextensions
+@@ -74,8 +73,7 @@ func CreateAPIExtensionsConfig(
+ 		ExtraConfig: apiextensionsapiserver.ExtraConfig{
+ 			CRDRESTOptionsGetter: apiextensionsoptions.NewCRDRESTOptionsGetter(etcdOptions, genericConfig.ResourceTransformers, genericConfig.StorageObjectCountTracker),
+ 			MasterCount:          masterCount,
+-			AuthResolverWrapper:  authResolverWrapper,
+-			ServiceResolver:      serviceResolver,
++			ConversionFactory:    conversionFactory,
+ 		},
+ 	}
+ 
+diff --git a/pkg/controlplane/apiserver/samples/generic/server/config.go b/pkg/controlplane/apiserver/samples/generic/server/config.go
+--- a/pkg/controlplane/apiserver/samples/generic/server/config.go
++++ b/pkg/controlplane/apiserver/samples/generic/server/config.go
+@@ -18,6 +18,7 @@ package server
+ 
+ import (
+ 	apiextensionsapiserver "k8s.io/apiextensions-apiserver/pkg/apiserver"
++	"k8s.io/apiextensions-apiserver/pkg/apiserver/conversion"
+ 	"k8s.io/apimachinery/pkg/runtime"
+ 	"k8s.io/apiserver/pkg/util/webhook"
+ 	aggregatorapiserver "k8s.io/kube-aggregator/pkg/apiserver"
+@@ -95,7 +96,11 @@ func NewConfig(opts options.CompletedOptions) (*Config, error) {
+ 	c.ControlPlane = kubeAPIs
+ 
+ 	authInfoResolver := webhook.NewDefaultAuthenticationInfoResolverWrapper(kubeAPIs.ProxyTransport, kubeAPIs.Generic.EgressSelector, kubeAPIs.Generic.LoopbackClientConfig, kubeAPIs.Generic.TracerProvider)
+-	apiExtensions, err := controlplaneapiserver.CreateAPIExtensionsConfig(*kubeAPIs.Generic, kubeAPIs.VersionedInformers, pluginInitializer, opts, 3, serviceResolver, authInfoResolver)
++	conversionFactory, err := conversion.NewCRConverterFactory(serviceResolver, authInfoResolver)
++	if err != nil {
++		return nil, err
++	}
++	apiExtensions, err := controlplaneapiserver.CreateAPIExtensionsConfig(*kubeAPIs.Generic, kubeAPIs.VersionedInformers, pluginInitializer, opts, 3, conversionFactory)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.go
+--- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.go
++++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.go
+@@ -26,6 +26,7 @@ import (
+ 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/install"
+ 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+ 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
++	"k8s.io/apiextensions-apiserver/pkg/apiserver/conversion"
+ 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+ 	externalinformers "k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions"
+ 	"k8s.io/apiextensions-apiserver/pkg/controller/apiapproval"
+@@ -47,7 +48,6 @@ import (
+ 	"k8s.io/apiserver/pkg/registry/rest"
+ 	genericapiserver "k8s.io/apiserver/pkg/server"
+ 	serverstorage "k8s.io/apiserver/pkg/server/storage"
+-	"k8s.io/apiserver/pkg/util/webhook"
+ 	"k8s.io/klog/v2"
+ )
+ 
+@@ -83,10 +83,8 @@ type ExtraConfig struct {
+ 	// the CRD Establishing will be hold by 5 seconds.
+ 	MasterCount int
+ 
+-	// ServiceResolver is used in CR webhook converters to resolve webhook's service names
+-	ServiceResolver webhook.ServiceResolver
+-	// AuthResolverWrapper is used in CR webhook converters
+-	AuthResolverWrapper webhook.AuthenticationInfoResolverWrapper
++	// ConversionFactory is used to provider converters for CRs.
++	ConversionFactory conversion.Factory
+ }
+ 
+ type Config struct {
+@@ -191,8 +189,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
+ 		c.ExtraConfig.CRDRESTOptionsGetter,
+ 		c.GenericConfig.AdmissionControl,
+ 		establishingController,
+-		c.ExtraConfig.ServiceResolver,
+-		c.ExtraConfig.AuthResolverWrapper,
++		c.ExtraConfig.ConversionFactory,
+ 		c.ExtraConfig.MasterCount,
+ 		s.GenericAPIServer.Authorizer,
+ 		c.GenericConfig.RequestTimeout,
+diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/converter.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/converter.go
+--- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/converter.go
++++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/converter.go
+@@ -23,15 +23,30 @@ import (
+ 	autoscalingv1 "k8s.io/api/autoscaling/v1"
+ 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+ 	apiextensionsfeatures "k8s.io/apiextensions-apiserver/pkg/features"
++	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+ 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
++	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
+ 	"k8s.io/apimachinery/pkg/runtime"
+ 	"k8s.io/apimachinery/pkg/runtime/schema"
+ 	"k8s.io/apimachinery/pkg/util/sets"
++	"k8s.io/apimachinery/pkg/util/validation/field"
+ 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+ 	"k8s.io/apiserver/pkg/util/webhook"
+ 	typedscheme "k8s.io/client-go/kubernetes/scheme"
+ )
+ 
++// Factory is able to create a new CRConverter for crd.
++type Factory interface {
++	// NewConverter returns a CRConverter capable of converting crd's versions.
++	//
++	// For proper conversion, the returned CRConverter must be used via NewDelegatingConverter.
++	//
++	// When implementing a CRConverter, you do not need to: test for valid API versions or no-op
++	// conversions, handle field selector logic, or handle scale conversions; these are all handled
++	// via NewDelegatingConverter.
++	NewConverter(crd *apiextensionsv1.CustomResourceDefinition) (CRConverter, error)
++}
++
+ // CRConverterFactory is the factory for all CR converters.
+ type CRConverterFactory struct {
+ 	// webhookConverterFactory is the factory for webhook converters.
+@@ -43,7 +58,7 @@ type CRConverterFactory struct {
+ // apiextensions-apiserver runs.
+ var converterMetricFactorySingleton = newConverterMetricFactory()
+ 
+-// NewCRConverterFactory creates a new CRConverterFactory
++// NewCRConverterFactory creates a new CRConverterFactory that supports none and webhook conversion strategies.
+ func NewCRConverterFactory(serviceResolver webhook.ServiceResolver, authResolverWrapper webhook.AuthenticationInfoResolverWrapper) (*CRConverterFactory, error) {
+ 	converterFactory := &CRConverterFactory{}
+ 	webhookConverterFactory, err := newWebhookConverterFactory(serviceResolver, authResolverWrapper)
+@@ -54,28 +69,30 @@ func NewCRConverterFactory(serviceResolver webhook.ServiceResolver, authResolver
+ 	return converterFactory, nil
+ }
+ 
+-// NewConverter returns a new CR converter based on the conversion settings in crd object.
+-func (m *CRConverterFactory) NewConverter(crd *apiextensionsv1.CustomResourceDefinition) (safe, unsafe runtime.ObjectConvertor, err error) {
+-	validVersions := map[schema.GroupVersion]bool{}
+-	for _, version := range crd.Spec.Versions {
+-		validVersions[schema.GroupVersion{Group: crd.Spec.Group, Version: version.Name}] = true
+-	}
+-
+-	var converter crConverterInterface
++// NewConverter creates a new CRConverter based on the crd's conversion strategy. Supported strategies are none and
++// webhook.
++func (f *CRConverterFactory) NewConverter(crd *apiextensionsv1.CustomResourceDefinition) (CRConverter, error) {
+ 	switch crd.Spec.Conversion.Strategy {
+ 	case apiextensionsv1.NoneConverter:
+-		converter = &nopConverter{}
++		return NewNOPConverter(), nil
+ 	case apiextensionsv1.WebhookConverter:
+-		converter, err = m.webhookConverterFactory.NewWebhookConverter(crd)
++		converter, err := f.webhookConverterFactory.NewWebhookConverter(crd)
+ 		if err != nil {
+-			return nil, nil, err
++			return nil, err
+ 		}
+-		converter, err = converterMetricFactorySingleton.addMetrics(crd.Name, converter)
+-		if err != nil {
+-			return nil, nil, err
+-		}
+-	default:
+-		return nil, nil, fmt.Errorf("unknown conversion strategy %q for CRD %s", crd.Spec.Conversion.Strategy, crd.Name)
++		return converterMetricFactorySingleton.addMetrics(crd.Name, converter)
++	}
++
++	return nil, fmt.Errorf("unknown conversion strategy %q for CRD %s", crd.Spec.Conversion.Strategy, crd.Name)
++}
++
++// NewDelegatingConverter returns new safe and unsafe converters based on the conversion settings in
++// crd. These converters contain logic common to all converters, and they delegate the actual
++// specific version-to-version conversion logic to the delegate.
++func NewDelegatingConverter(crd *apiextensionsv1.CustomResourceDefinition, delegate CRConverter) (safe, unsafe runtime.ObjectConvertor, err error) {
++	validVersions := map[schema.GroupVersion]bool{}
++	for _, version := range crd.Spec.Versions {
++		validVersions[schema.GroupVersion{Group: crd.Spec.Group, Version: version.Name}] = true
+ 	}
+ 
+ 	// Determine whether we should expect to be asked to "convert" autoscaling/v1 Scale types
+@@ -95,35 +112,44 @@ func (m *CRConverterFactory) NewConverter(crd *apiextensionsv1.CustomResourceDef
+ 		}
+ 	}
+ 
+-	unsafe = &crConverter{
++	unsafe = &delegatingCRConverter{
+ 		convertScale:     convertScale,
+ 		validVersions:    validVersions,
+ 		clusterScoped:    crd.Spec.Scope == apiextensionsv1.ClusterScoped,
+-		converter:        converter,
++		converter:        delegate,
+ 		selectableFields: selectableFields,
+ 	}
++
+ 	return &safeConverterWrapper{unsafe}, unsafe, nil
+ }
+ 
+-// crConverterInterface is the interface all cr converters must implement
+-type crConverterInterface interface {
++// CRConverter is the interface all CR converters must implement
++type CRConverter interface {
+ 	// Convert converts in object to the given gvk and returns the converted object.
+ 	// Note that the function may mutate in object and return it. A safe wrapper will make sure
+ 	// a safe converter will be returned.
+-	Convert(in runtime.Object, targetGVK schema.GroupVersion) (runtime.Object, error)
++	Convert(in *unstructured.UnstructuredList, targetGV schema.GroupVersion) (*unstructured.UnstructuredList, error)
++}
++
++// CRConverterFunc wraps a CR conversion func into a CRConverter.
++type CRConverterFunc func(in *unstructured.UnstructuredList, targetGVK schema.GroupVersion) (*unstructured.UnstructuredList, error)
++
++func (fn CRConverterFunc) Convert(in *unstructured.UnstructuredList, targetGV schema.GroupVersion) (*unstructured.UnstructuredList, error) {
++	return fn(in, targetGV)
+ }
+ 
+-// crConverter extends the delegate converter with generic CR conversion behaviour. The delegate will implement the
++// delegatingCRConverter extends the delegate converter with generic CR conversion behaviour. The delegate will implement the
+ // user defined conversion strategy given in the CustomResourceDefinition.
+-type crConverter struct {
++type delegatingCRConverter struct {
+ 	convertScale     bool
+-	converter        crConverterInterface
++	converter        CRConverter
+ 	validVersions    map[schema.GroupVersion]bool
+ 	clusterScoped    bool
+ 	selectableFields map[schema.GroupVersion]sets.Set[string]
+ }
+ 
+-func (c *crConverter) ConvertFieldLabel(gvk schema.GroupVersionKind, label, value string) (string, string, error) {
++func (c *delegatingCRConverter) ConvertFieldLabel(gvk schema.GroupVersionKind, label, value string) (string, string, error) {
++	// We currently only support metadata.namespace and metadata.name.
+ 	switch {
+ 	case label == "metadata.name":
+ 		return label, value, nil
+@@ -140,7 +166,7 @@ func (c *crConverter) ConvertFieldLabel(gvk schema.GroupVersionKind, label, valu
+ 	}
+ }
+ 
+-func (c *crConverter) Convert(in, out, context interface{}) error {
++func (c *delegatingCRConverter) Convert(in, out, context interface{}) error {
+ 	// Special-case typed scale conversion if this custom resource supports a scale endpoint
+ 	if c.convertScale {
+ 		_, isInScale := in.(*autoscalingv1.Scale)
+@@ -178,22 +204,36 @@ func (c *crConverter) Convert(in, out, context interface{}) error {
+ // The in object can be a single object or a UnstructuredList. CRD storage implementation creates an
+ // UnstructuredList with the request's GV, populates it from storage, then calls conversion to convert
+ // the individual items. This function assumes it never gets a v1.List.
+-func (c *crConverter) ConvertToVersion(in runtime.Object, target runtime.GroupVersioner) (runtime.Object, error) {
++func (c *delegatingCRConverter) ConvertToVersion(in runtime.Object, target runtime.GroupVersioner) (runtime.Object, error) {
++	// Special-case typed scale conversion if this custom resource supports a scale endpoint
++	if c.convertScale {
++		if _, isInScale := in.(*autoscalingv1.Scale); isInScale {
++			return typedscheme.Scheme.ConvertToVersion(in, target)
++		}
++	}
++
+ 	fromGVK := in.GetObjectKind().GroupVersionKind()
+ 	toGVK, ok := target.KindForGroupVersionKinds([]schema.GroupVersionKind{fromGVK})
+ 	if !ok {
+ 		// TODO: should this be a typed error?
+ 		return nil, fmt.Errorf("%v is unstructured and is not suitable for converting to %q", fromGVK.String(), target)
+ 	}
+-	// Special-case typed scale conversion if this custom resource supports a scale endpoint
+-	if c.convertScale {
+-		if _, isInScale := in.(*autoscalingv1.Scale); isInScale {
+-			return typedscheme.Scheme.ConvertToVersion(in, target)
+-		}
++
++	isList := false
++	var list *unstructured.UnstructuredList
++	switch t := in.(type) {
++	case *unstructured.Unstructured:
++		list = &unstructured.UnstructuredList{Items: []unstructured.Unstructured{*t}}
++	case *unstructured.UnstructuredList:
++		list = t
++		isList = true
++	default:
++		return nil, fmt.Errorf("unexpected type %T", in)
+ 	}
+ 
++	desiredAPIVersion := toGVK.GroupVersion().String()
+ 	if !c.validVersions[toGVK.GroupVersion()] {
+-		return nil, fmt.Errorf("request to convert CR to an invalid group/version: %s", toGVK.GroupVersion().String())
++		return nil, fmt.Errorf("request to convert CR to an invalid group/version: %s", desiredAPIVersion)
+ 	}
+ 	// Note that even if the request is for a list, the GV of the request UnstructuredList is what
+ 	// is expected to convert to. As mentioned in the function's document, it is not expected to
+@@ -201,16 +241,116 @@ func (c *crConverter) ConvertToVersion(in runtime.Object, target runtime.GroupVe
+ 	if !c.validVersions[fromGVK.GroupVersion()] {
+ 		return nil, fmt.Errorf("request to convert CR from an invalid group/version: %s", fromGVK.GroupVersion().String())
+ 	}
+-	// Check list item's apiVersion
+-	if list, ok := in.(*unstructured.UnstructuredList); ok {
+-		for i := range list.Items {
+-			expectedGV := list.Items[i].GroupVersionKind().GroupVersion()
+-			if !c.validVersions[expectedGV] {
+-				return nil, fmt.Errorf("request to convert CR list failed, list index %d has invalid group/version: %s", i, expectedGV.String())
++
++	objectsToConvert, err := getObjectsToConvert(list, desiredAPIVersion, c.validVersions)
++	if err != nil {
++		return nil, err
++	}
++
++	objCount := len(objectsToConvert)
++	if objCount == 0 {
++		// no objects needed conversion
++		if !isList {
++			// for a single item, return as-is
++			return in, nil
++		}
++		// for a list, set the version of the top-level list object (all individual objects are already in the correct version)
++		list.SetAPIVersion(desiredAPIVersion)
++		return list, nil
++	}
++
++	// A smoke test in API machinery calls the converter on empty objects during startup. The test is initiated here:
++	// https://github.com/kubernetes/kubernetes/blob/dbb448bbdcb9e440eee57024ffa5f1698956a054/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go#L201
++	if isEmptyUnstructuredObject(in) {
++		converted, err := NewNOPConverter().Convert(list, toGVK.GroupVersion())
++		if err != nil {
++			return nil, err
++		}
++		if !isList {
++			return &converted.Items[0], nil
++		}
++		return converted, nil
++	}
++
++	// Deepcopy ObjectMeta because the converter might mutate the objects, and we
++	// need the original ObjectMeta furthermore for validation and restoration.
++	for i := range objectsToConvert {
++		original := objectsToConvert[i].Object
++		objectsToConvert[i].Object = make(map[string]interface{}, len(original))
++		for k, v := range original {
++			if k == "metadata" {
++				v = runtime.DeepCopyJSONValue(v)
+ 			}
++			objectsToConvert[i].Object[k] = v
+ 		}
+ 	}
+-	return c.converter.Convert(in, toGVK.GroupVersion())
++
++	// Do the (potentially mutating) conversion.
++	convertedObjects, err := c.converter.Convert(&unstructured.UnstructuredList{
++		Object: list.Object,
++		Items:  objectsToConvert,
++	}, toGVK.GroupVersion())
++	if err != nil {
++		return nil, fmt.Errorf("conversion for %v failed: %w", in.GetObjectKind().GroupVersionKind(), err)
++	}
++	if len(convertedObjects.Items) != len(objectsToConvert) {
++		return nil, fmt.Errorf("conversion for %v returned %d objects, expected %d", in.GetObjectKind().GroupVersionKind(), len(convertedObjects.Items), len(objectsToConvert))
++	}
++
++	// Fill back in the converted objects from the response at the right spots.
++	// The response list might be sparse because objects had the right version already.
++	convertedList := list
++	convertedList.SetAPIVersion(desiredAPIVersion)
++	convertedIndex := 0
++	for i := range convertedList.Items {
++		original := &convertedList.Items[i]
++		if original.GetAPIVersion() == desiredAPIVersion {
++			// This item has not been sent for conversion, and therefore does not show up in the response.
++			// convertedList has the right item already.
++			continue
++		}
++		converted := &convertedObjects.Items[convertedIndex]
++		convertedIndex++
++		if expected, got := toGVK.GroupVersion(), converted.GetObjectKind().GroupVersionKind().GroupVersion(); expected != got {
++			return nil, fmt.Errorf("conversion for %v returned invalid converted object at index %v: invalid groupVersion (expected %v, received %v)", in.GetObjectKind().GroupVersionKind(), convertedIndex, expected, got)
++		}
++		if expected, got := original.GetObjectKind().GroupVersionKind().Kind, converted.GetObjectKind().GroupVersionKind().Kind; expected != got {
++			return nil, fmt.Errorf("conversion for %v returned invalid converted object at index %v: invalid kind (expected %v, received %v)", in.GetObjectKind().GroupVersionKind(), convertedIndex, expected, got)
++		}
++		if err := validateConvertedObject(original, converted); err != nil {
++			return nil, fmt.Errorf("conversion for %v returned invalid converted object at index %v: %v", in.GetObjectKind().GroupVersionKind(), convertedIndex, err)
++		}
++		if err := restoreObjectMeta(original, converted); err != nil {
++			return nil, fmt.Errorf("conversion for %v returned invalid metadata in object at index %v: %v", in.GetObjectKind().GroupVersionKind(), convertedIndex, err)
++		}
++		convertedList.Items[i] = *converted
++	}
++
++	if isList {
++		return convertedList, nil
++	}
++
++	return &convertedList.Items[0], nil
++}
++
++func getObjectsToConvert(
++	list *unstructured.UnstructuredList,
++	desiredAPIVersion string,
++	validVersions map[schema.GroupVersion]bool,
++) ([]unstructured.Unstructured, error) {
++	var objectsToConvert []unstructured.Unstructured
++	for i := range list.Items {
++		expectedGV := list.Items[i].GroupVersionKind().GroupVersion()
++		if !validVersions[expectedGV] {
++			return nil, fmt.Errorf("request to convert CR list failed, list index %d has invalid group/version: %s", i, expectedGV.String())
++		}
++
++		// Only sent item for conversion, if the apiVersion is different
++		if list.Items[i].GetAPIVersion() != desiredAPIVersion {
++			objectsToConvert = append(objectsToConvert, list.Items[i])
++		}
++	}
++	return objectsToConvert, nil
+ }
+ 
+ // safeConverterWrapper is a wrapper over an unsafe object converter that makes copy of the input and then delegate to the unsafe converter.
+@@ -238,3 +378,118 @@ func (c *safeConverterWrapper) Convert(in, out, context interface{}) error {
+ func (c *safeConverterWrapper) ConvertToVersion(in runtime.Object, target runtime.GroupVersioner) (runtime.Object, error) {
+ 	return c.unsafe.ConvertToVersion(in.DeepCopyObject(), target)
+ }
++
++// isEmptyUnstructuredObject returns true if in is an empty unstructured object, i.e. an unstructured object that does
++// not have any field except apiVersion and kind.
++func isEmptyUnstructuredObject(in runtime.Object) bool {
++	u, ok := in.(*unstructured.Unstructured)
++	if !ok {
++		return false
++	}
++	if len(u.Object) != 2 {
++		return false
++	}
++	if _, ok := u.Object["kind"]; !ok {
++		return false
++	}
++	if _, ok := u.Object["apiVersion"]; !ok {
++		return false
++	}
++	return true
++}
++
++// validateConvertedObject checks that ObjectMeta fields match, with the exception of
++// labels and annotations.
++func validateConvertedObject(in, out *unstructured.Unstructured) error {
++	if e, a := in.GetKind(), out.GetKind(); e != a {
++		return fmt.Errorf("must have the same kind: %v != %v", e, a)
++	}
++	if e, a := in.GetName(), out.GetName(); e != a {
++		return fmt.Errorf("must have the same name: %v != %v", e, a)
++	}
++	if e, a := in.GetNamespace(), out.GetNamespace(); e != a {
++		return fmt.Errorf("must have the same namespace: %v != %v", e, a)
++	}
++	if e, a := in.GetUID(), out.GetUID(); e != a {
++		return fmt.Errorf("must have the same UID: %v != %v", e, a)
++	}
++	return nil
++}
++
++// restoreObjectMeta copies metadata from original into converted, while preserving labels and annotations from converted.
++func restoreObjectMeta(original, converted *unstructured.Unstructured) error {
++	cm, found := converted.Object["metadata"]
++	om, previouslyFound := original.Object["metadata"]
++	switch {
++	case !found && !previouslyFound:
++		return nil
++	case previouslyFound && !found:
++		return fmt.Errorf("missing metadata in converted object")
++	case !previouslyFound && found:
++		om = map[string]interface{}{}
++	}
++
++	convertedMeta, ok := cm.(map[string]interface{})
++	if !ok {
++		return fmt.Errorf("invalid metadata of type %T in converted object", cm)
++	}
++	originalMeta, ok := om.(map[string]interface{})
++	if !ok {
++		return fmt.Errorf("invalid metadata of type %T in input object", om)
++	}
++
++	result := converted
++	if previouslyFound {
++		result.Object["metadata"] = originalMeta
++	} else {
++		result.Object["metadata"] = map[string]interface{}{}
++	}
++	resultMeta := result.Object["metadata"].(map[string]interface{})
++
++	for _, fld := range []string{"labels", "annotations"} {
++		obj, found := convertedMeta[fld]
++		if !found || obj == nil {
++			delete(resultMeta, fld)
++			continue
++		}
++
++		convertedField, ok := obj.(map[string]interface{})
++		if !ok {
++			return fmt.Errorf("invalid metadata.%s of type %T in converted object", fld, obj)
++		}
++		originalField, ok := originalMeta[fld].(map[string]interface{})
++		if !ok && originalField[fld] != nil {
++			return fmt.Errorf("invalid metadata.%s of type %T in original object", fld, originalMeta[fld])
++		}
++
++		somethingChanged := len(originalField) != len(convertedField)
++		for k, v := range convertedField {
++			if _, ok := v.(string); !ok {
++				return fmt.Errorf("metadata.%s[%s] must be a string, but is %T in converted object", fld, k, v)
++			}
++			if originalField[k] != interface{}(v) {
++				somethingChanged = true
++			}
++		}
++
++		if somethingChanged {
++			stringMap := make(map[string]string, len(convertedField))
++			for k, v := range convertedField {
++				stringMap[k] = v.(string)
++			}
++			var errs field.ErrorList
++			if fld == "labels" {
++				errs = metav1validation.ValidateLabels(stringMap, field.NewPath("metadata", "labels"))
++			} else {
++				errs = apivalidation.ValidateAnnotations(stringMap, field.NewPath("metadata", "annotation"))
++			}
++			if len(errs) > 0 {
++				return errs.ToAggregate()
++			}
++		}
++
++		resultMeta[fld] = convertedField
++	}
++
++	return nil
++}
+diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/converter_test.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/converter_test.go
+--- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/converter_test.go
++++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/converter_test.go
+@@ -17,15 +17,17 @@ limitations under the License.
+ package conversion
+ 
+ import (
++	"fmt"
+ 	"reflect"
+ 	"strings"
+ 	"testing"
+ 
++	"github.com/google/go-cmp/cmp"
++
+ 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+ 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+ 	"k8s.io/apimachinery/pkg/runtime"
+ 	"k8s.io/apimachinery/pkg/runtime/schema"
+-	"k8s.io/apiserver/pkg/util/webhook"
+ )
+ 
+ func TestConversion(t *testing.T) {
+@@ -46,6 +48,7 @@ func TestConversion(t *testing.T) {
+ 			SourceObject: &unstructured.Unstructured{
+ 				Object: map[string]interface{}{
+ 					"apiVersion": "example.com/v1",
++					"metadata":   map[string]interface{}{"name": "foo1"},
+ 					"other":      "data",
+ 					"kind":       "foo",
+ 				},
+@@ -53,6 +56,7 @@ func TestConversion(t *testing.T) {
+ 			ExpectedObject: &unstructured.Unstructured{
+ 				Object: map[string]interface{}{
+ 					"apiVersion": "example.com/v2",
++					"metadata":   map[string]interface{}{"name": "foo1"},
+ 					"other":      "data",
+ 					"kind":       "foo",
+ 				},
+@@ -86,6 +90,7 @@ func TestConversion(t *testing.T) {
+ 					{
+ 						Object: map[string]interface{}{
+ 							"apiVersion": "example.com/v1",
++							"metadata":   map[string]interface{}{"name": "foo1"},
+ 							"kind":       "foo",
+ 							"other":      "data",
+ 						},
+@@ -93,6 +98,7 @@ func TestConversion(t *testing.T) {
+ 					{
+ 						Object: map[string]interface{}{
+ 							"apiVersion": "example.com/v1",
++							"metadata":   map[string]interface{}{"name": "foo2"},
+ 							"kind":       "foo",
+ 							"other":      "data2",
+ 						},
+@@ -108,6 +114,7 @@ func TestConversion(t *testing.T) {
+ 					{
+ 						Object: map[string]interface{}{
+ 							"apiVersion": "example.com/v2",
++							"metadata":   map[string]interface{}{"name": "foo1"},
+ 							"kind":       "foo",
+ 							"other":      "data",
+ 						},
+@@ -115,6 +122,7 @@ func TestConversion(t *testing.T) {
+ 					{
+ 						Object: map[string]interface{}{
+ 							"apiVersion": "example.com/v2",
++							"metadata":   map[string]interface{}{"name": "foo2"},
+ 							"kind":       "foo",
+ 							"other":      "data2",
+ 						},
+@@ -154,42 +162,648 @@ func TestConversion(t *testing.T) {
+ 		},
+ 	}
+ 
+-	CRConverterFactory, err := NewCRConverterFactory(nil, func(resolver webhook.AuthenticationInfoResolver) webhook.AuthenticationInfoResolver { return nil })
+-	if err != nil {
+-		t.Fatalf("Cannot create conversion factory: %v", err)
+-	}
+ 	for _, test := range tests {
+-		testCRD := apiextensionsv1.CustomResourceDefinition{
+-			Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+-				Conversion: &apiextensionsv1.CustomResourceConversion{
+-					Strategy: apiextensionsv1.NoneConverter,
+-				},
+-			},
+-		}
+-		for _, v := range test.ValidVersions {
+-			gv, _ := schema.ParseGroupVersion(v)
+-			testCRD.Spec.Versions = append(testCRD.Spec.Versions, apiextensionsv1.CustomResourceDefinitionVersion{Name: gv.Version, Served: true})
+-			testCRD.Spec.Group = gv.Group
+-		}
+-		safeConverter, _, err := CRConverterFactory.NewConverter(&testCRD)
+-		if err != nil {
+-			t.Fatalf("Cannot create converter: %v", err)
+-		}
+-		o := test.SourceObject.DeepCopyObject()
+-		toVersion, _ := schema.ParseGroupVersion(test.ToVersion)
+-		toVersions := schema.GroupVersions{toVersion}
+-		actual, err := safeConverter.ConvertToVersion(o, toVersions)
+-		if test.ExpectedFailure != "" {
+-			if err == nil || !strings.Contains(err.Error(), test.ExpectedFailure) {
+-				t.Fatalf("%s: Expected the call to fail with error message `%s` but err=%v", test.Name, test.ExpectedFailure, err)
++		t.Run(test.Name, func(t *testing.T) {
++			testCRD := apiextensionsv1.CustomResourceDefinition{
++				Spec: apiextensionsv1.CustomResourceDefinitionSpec{
++					Conversion: &apiextensionsv1.CustomResourceConversion{
++						Strategy: apiextensionsv1.NoneConverter,
++					},
++				},
++			}
++			for _, v := range test.ValidVersions {
++				gv, _ := schema.ParseGroupVersion(v)
++				testCRD.Spec.Versions = append(testCRD.Spec.Versions, apiextensionsv1.CustomResourceDefinitionVersion{Name: gv.Version, Served: true})
++				testCRD.Spec.Group = gv.Group
+ 			}
+-		} else {
++			safeConverter, _, err := NewDelegatingConverter(&testCRD, NewNOPConverter())
+ 			if err != nil {
+-				t.Fatalf("%s: conversion failed with : %v", test.Name, err)
++				t.Fatalf("Cannot create converter: %v", err)
++			}
++			o := test.SourceObject.DeepCopyObject()
++			toVersion, _ := schema.ParseGroupVersion(test.ToVersion)
++			toVersions := schema.GroupVersions{toVersion}
++			actual, err := safeConverter.ConvertToVersion(o, toVersions)
++			if test.ExpectedFailure != "" {
++				if err == nil || !strings.Contains(err.Error(), test.ExpectedFailure) {
++					t.Fatalf("%s: Expected the call to fail with error message `%s` but err=%v", test.Name, test.ExpectedFailure, err)
++				}
++			} else {
++				if err != nil {
++					t.Fatalf("%s: conversion failed with : %v", test.Name, err)
++				}
++				if !reflect.DeepEqual(test.ExpectedObject, actual) {
++					t.Fatalf("%s: Expected = %v, Actual = %v", test.Name, test.ExpectedObject, actual)
++				}
++			}
++		})
++	}
++}
++
++func TestGetObjectsToConvert(t *testing.T) {
++	v1Object := &unstructured.Unstructured{Object: map[string]interface{}{"apiVersion": "foo/v1", "kind": "Widget", "metadata": map[string]interface{}{"name": "myv1"}}}
++	v2Object := &unstructured.Unstructured{Object: map[string]interface{}{"apiVersion": "foo/v2", "kind": "Widget", "metadata": map[string]interface{}{"name": "myv2"}}}
++	v3Object := &unstructured.Unstructured{Object: map[string]interface{}{"apiVersion": "foo/v3", "kind": "Widget", "metadata": map[string]interface{}{"name": "myv3"}}}
++
++	testcases := []struct {
++		Name          string
++		List          *unstructured.UnstructuredList
++		APIVersion    string
++		ValidVersions map[schema.GroupVersion]bool
++
++		ExpectObjects []unstructured.Unstructured
++		ExpectError   bool
++	}{
++		{
++			Name:       "empty list",
++			List:       &unstructured.UnstructuredList{},
++			APIVersion: "foo/v1",
++			ValidVersions: map[schema.GroupVersion]bool{
++				{Group: "foo", Version: "v1"}: true,
++			},
++			ExpectObjects: nil,
++		},
++		{
++			Name: "one-item list, in desired version",
++			List: &unstructured.UnstructuredList{
++				Items: []unstructured.Unstructured{*v1Object},
++			},
++			ValidVersions: map[schema.GroupVersion]bool{
++				{Group: "foo", Version: "v1"}: true,
++			},
++			APIVersion:    "foo/v1",
++			ExpectObjects: nil,
++		},
++		{
++			Name: "one-item list, not in desired version",
++			List: &unstructured.UnstructuredList{
++				Items: []unstructured.Unstructured{*v2Object},
++			},
++			ValidVersions: map[schema.GroupVersion]bool{
++				{Group: "foo", Version: "v1"}: true,
++				{Group: "foo", Version: "v2"}: true,
++			},
++			APIVersion:    "foo/v1",
++			ExpectObjects: []unstructured.Unstructured{*v2Object},
++		},
++		{
++			Name: "multi-item list, in desired version",
++			List: &unstructured.UnstructuredList{
++				Items: []unstructured.Unstructured{*v1Object, *v1Object, *v1Object},
++			},
++			ValidVersions: map[schema.GroupVersion]bool{
++				{Group: "foo", Version: "v1"}: true,
++				{Group: "foo", Version: "v2"}: true,
++			},
++			APIVersion:    "foo/v1",
++			ExpectObjects: nil,
++		},
++		{
++			Name: "multi-item list, mixed versions",
++			List: &unstructured.UnstructuredList{
++				Items: []unstructured.Unstructured{*v1Object, *v2Object, *v3Object},
++			},
++			ValidVersions: map[schema.GroupVersion]bool{
++				{Group: "foo", Version: "v1"}: true,
++				{Group: "foo", Version: "v2"}: true,
++				{Group: "foo", Version: "v3"}: true,
++			},
++			APIVersion:    "foo/v1",
++			ExpectObjects: []unstructured.Unstructured{*v2Object, *v3Object},
++		},
++		{
++			Name: "multi-item list, invalid versions",
++			List: &unstructured.UnstructuredList{
++				Items: []unstructured.Unstructured{*v1Object, *v2Object, *v3Object},
++			},
++			ValidVersions: map[schema.GroupVersion]bool{
++				{Group: "foo", Version: "v2"}: true,
++				{Group: "foo", Version: "v3"}: true,
++			},
++			APIVersion:    "foo/v1",
++			ExpectObjects: nil,
++			ExpectError:   true,
++		},
++	}
++	for _, tc := range testcases {
++		t.Run(tc.Name, func(t *testing.T) {
++			objects, err := getObjectsToConvert(tc.List, tc.APIVersion, tc.ValidVersions)
++			gotError := err != nil
++			if e, a := tc.ExpectError, gotError; e != a {
++				t.Fatalf("error: expected %t, got %t", e, a)
++			}
++			if !reflect.DeepEqual(objects, tc.ExpectObjects) {
++				t.Errorf("unexpected diff: %s", cmp.Diff(tc.ExpectObjects, objects))
++			}
++		})
++	}
++}
++
++func TestDelegatingCRConverterConvertToVersion(t *testing.T) {
++	type args struct {
++		in     runtime.Object
++		target runtime.GroupVersioner
++	}
++	tests := []struct {
++		name      string
++		converter CRConverter
++		args      args
++		want      runtime.Object
++		wantErr   bool
++	}{
++		{
++			name:      "empty",
++			converter: NewNOPConverter(),
++			args: args{
++				in: &unstructured.UnstructuredList{Object: map[string]interface{}{
++					"apiVersion": "example.com/v1",
++					"kind":       "FooList",
++				}, Items: []unstructured.Unstructured{}},
++				target: schema.GroupVersion{Group: "example.com", Version: "v2"},
++			},
++			want: &unstructured.UnstructuredList{Object: map[string]interface{}{
++				"apiVersion": "example.com/v2",
++				"kind":       "FooList",
++			}, Items: []unstructured.Unstructured{}},
++		},
++		{
++			name:      "happy path in-place",
++			converter: NewNOPConverter(),
++			args: args{
++				in: &unstructured.UnstructuredList{Object: map[string]interface{}{
++					"apiVersion": "example.com/v1",
++					"kind":       "FooList",
++				}, Items: []unstructured.Unstructured{
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo1"},
++						"spec":       map[string]interface{}{},
++					}},
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v2",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo2"},
++						"spec":       map[string]interface{}{},
++					}},
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo3"},
++						"spec":       map[string]interface{}{},
++					}},
++				}},
++				target: schema.GroupVersion{Group: "example.com", Version: "v2"},
++			},
++			want: &unstructured.UnstructuredList{Object: map[string]interface{}{
++				"apiVersion": "example.com/v2",
++				"kind":       "FooList",
++			}, Items: []unstructured.Unstructured{
++				{Object: map[string]interface{}{
++					"apiVersion": "example.com/v2",
++					"kind":       "Foo",
++					"metadata":   map[string]interface{}{"name": "foo1"},
++					"spec":       map[string]interface{}{},
++				}},
++				{Object: map[string]interface{}{
++					"apiVersion": "example.com/v2",
++					"kind":       "Foo",
++					"metadata":   map[string]interface{}{"name": "foo2"},
++					"spec":       map[string]interface{}{},
++				}},
++				{Object: map[string]interface{}{
++					"apiVersion": "example.com/v2",
++					"kind":       "Foo",
++					"metadata":   map[string]interface{}{"name": "foo3"},
++					"spec":       map[string]interface{}{},
++				}},
++			}},
++		},
++		{
++			name: "happy path copying",
++			converter: CRConverterFunc(func(in *unstructured.UnstructuredList, targetGVK schema.GroupVersion) (*unstructured.UnstructuredList, error) {
++				return NewNOPConverter().Convert(in.DeepCopy(), targetGVK)
++			}),
++			args: args{
++				in: &unstructured.UnstructuredList{Object: map[string]interface{}{
++					"apiVersion": "example.com/v1",
++					"kind":       "FooList",
++				}, Items: []unstructured.Unstructured{
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo1"},
++						"spec":       map[string]interface{}{},
++					}},
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v2",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo2"},
++						"spec":       map[string]interface{}{},
++					}},
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo3"},
++						"spec":       map[string]interface{}{},
++					}},
++				}},
++				target: schema.GroupVersion{Group: "example.com", Version: "v2"},
++			},
++			want: &unstructured.UnstructuredList{Object: map[string]interface{}{
++				"apiVersion": "example.com/v2",
++				"kind":       "FooList",
++			}, Items: []unstructured.Unstructured{
++				{Object: map[string]interface{}{
++					"apiVersion": "example.com/v2",
++					"kind":       "Foo",
++					"metadata":   map[string]interface{}{"name": "foo1"},
++					"spec":       map[string]interface{}{},
++				}},
++				{Object: map[string]interface{}{
++					"apiVersion": "example.com/v2",
++					"kind":       "Foo",
++					"metadata":   map[string]interface{}{"name": "foo2"},
++					"spec":       map[string]interface{}{},
++				}},
++				{Object: map[string]interface{}{
++					"apiVersion": "example.com/v2",
++					"kind":       "Foo",
++					"metadata":   map[string]interface{}{"name": "foo3"},
++					"spec":       map[string]interface{}{},
++				}},
++			}},
++		},
++		{
++			name: "mutating name",
++			converter: CRConverterFunc(func(in *unstructured.UnstructuredList, targetGVK schema.GroupVersion) (*unstructured.UnstructuredList, error) {
++				ret, _ := NewNOPConverter().Convert(in.DeepCopy(), targetGVK)
++				ret.Items[0].SetName("mutated")
++				return ret, nil
++			}),
++			args: args{
++				in: &unstructured.Unstructured{
++					Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo1"},
++						"spec":       map[string]interface{}{},
++					},
++				},
++				target: schema.GroupVersion{Group: "example.com", Version: "v2"},
++			},
++			wantErr: true,
++		},
++		{
++			name: "mutating uid",
++			converter: CRConverterFunc(func(in *unstructured.UnstructuredList, targetGVK schema.GroupVersion) (*unstructured.UnstructuredList, error) {
++				ret, _ := NewNOPConverter().Convert(in.DeepCopy(), targetGVK)
++				ret.Items[0].SetUID("mutated")
++				return ret, nil
++			}),
++			args: args{
++				in: &unstructured.Unstructured{
++					Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo1"},
++						"spec":       map[string]interface{}{},
++					},
++				},
++				target: schema.GroupVersion{Group: "example.com", Version: "v2"},
++			},
++			wantErr: true,
++		},
++		{
++			name: "mutating namespace",
++			converter: CRConverterFunc(func(in *unstructured.UnstructuredList, targetGVK schema.GroupVersion) (*unstructured.UnstructuredList, error) {
++				ret, _ := NewNOPConverter().Convert(in.DeepCopy(), targetGVK)
++				ret.Items[0].SetNamespace("mutated")
++				return ret, nil
++			}),
++			args: args{
++				in: &unstructured.Unstructured{
++					Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo1"},
++						"spec":       map[string]interface{}{},
++					},
++				},
++				target: schema.GroupVersion{Group: "example.com", Version: "v2"},
++			},
++			wantErr: true,
++		},
++		{
++			name: "mutating kind",
++			converter: CRConverterFunc(func(in *unstructured.UnstructuredList, targetGVK schema.GroupVersion) (*unstructured.UnstructuredList, error) {
++				ret, _ := NewNOPConverter().Convert(in.DeepCopy(), targetGVK)
++				ret.Items[0].SetKind("Moo")
++				return ret, nil
++			}),
++			args: args{
++				in: &unstructured.Unstructured{
++					Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo1"},
++						"spec":       map[string]interface{}{},
++					},
++				},
++				target: schema.GroupVersion{Group: "example.com", Version: "v2"},
++			},
++			wantErr: true,
++		},
++		{
++			name: "mutating labels and annotations",
++			converter: CRConverterFunc(func(in *unstructured.UnstructuredList, targetGVK schema.GroupVersion) (*unstructured.UnstructuredList, error) {
++				ret, _ := NewNOPConverter().Convert(in.DeepCopy(), targetGVK)
++
++				labels := ret.Items[0].GetLabels()
++				labels["foo"] = "bar"
++				ret.Items[0].SetLabels(labels)
++
++				annotations := ret.Items[0].GetAnnotations()
++				annotations["foo"] = "bar"
++				ret.Items[0].SetAnnotations(annotations)
++
++				return ret, nil
++			}),
++			args: args{
++				in: &unstructured.Unstructured{
++					Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata": map[string]interface{}{
++							"name":        "foo1",
++							"labels":      map[string]interface{}{"a": "b"},
++							"annotations": map[string]interface{}{"c": "d"},
++						},
++						"spec": map[string]interface{}{},
++					},
++				},
++				target: schema.GroupVersion{Group: "example.com", Version: "v2"},
++			},
++			want: &unstructured.Unstructured{
++				Object: map[string]interface{}{
++					"apiVersion": "example.com/v2",
++					"kind":       "Foo",
++					"metadata": map[string]interface{}{
++						"name":        "foo1",
++						"labels":      map[string]interface{}{"a": "b", "foo": "bar"},
++						"annotations": map[string]interface{}{"c": "d", "foo": "bar"},
++					},
++					"spec": map[string]interface{}{},
++				},
++			},
++		},
++		{
++			name: "mutating any other metadata",
++			converter: CRConverterFunc(func(in *unstructured.UnstructuredList, targetGVK schema.GroupVersion) (*unstructured.UnstructuredList, error) {
++				ret, _ := NewNOPConverter().Convert(in.DeepCopy(), targetGVK)
++				ret.Items[0].SetFinalizers([]string{"foo"})
++				return ret, nil
++			}),
++			args: args{
++				in: &unstructured.Unstructured{
++					Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo1"},
++						"spec":       map[string]interface{}{},
++					},
++				},
++				target: schema.GroupVersion{Group: "example.com", Version: "v2"},
++			},
++			want: &unstructured.Unstructured{
++				Object: map[string]interface{}{
++					"apiVersion": "example.com/v2",
++					"kind":       "Foo",
++					"metadata":   map[string]interface{}{"name": "foo1"},
++					"spec":       map[string]interface{}{},
++				},
++			},
++		},
++		{
++			name:      "empty metadata",
++			converter: NewNOPConverter(),
++			args: args{
++				in: &unstructured.Unstructured{
++					Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{},
++						"spec":       map[string]interface{}{},
++					},
++				},
++				target: schema.GroupVersion{Group: "example.com", Version: "v2"},
++			},
++			want: &unstructured.Unstructured{
++				Object: map[string]interface{}{
++					"apiVersion": "example.com/v2",
++					"kind":       "Foo",
++					"metadata":   map[string]interface{}{},
++					"spec":       map[string]interface{}{},
++				},
++			},
++		},
++		{
++			name:      "missing metadata",
++			converter: NewNOPConverter(),
++			args: args{
++				in: &unstructured.Unstructured{
++					Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"spec":       map[string]interface{}{},
++					},
++				},
++				target: schema.GroupVersion{Group: "example.com", Version: "v2"},
++			},
++			want: &unstructured.Unstructured{
++				Object: map[string]interface{}{
++					"apiVersion": "example.com/v2",
++					"kind":       "Foo",
++					"spec":       map[string]interface{}{},
++				},
++			},
++		},
++		{
++			name: "convertor error",
++			converter: CRConverterFunc(func(in *unstructured.UnstructuredList, targetGV schema.GroupVersion) (*unstructured.UnstructuredList, error) {
++				return nil, fmt.Errorf("boom")
++			}),
++			args: args{
++				in: &unstructured.UnstructuredList{Object: map[string]interface{}{
++					"apiVersion": "example.com/v1",
++					"kind":       "FooList",
++				}, Items: []unstructured.Unstructured{
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo1"},
++						"spec":       map[string]interface{}{},
++					}},
++				}},
++				target: schema.GroupVersion{Group: "example.com", Version: "v2"},
++			},
++			wantErr: true,
++		},
++		{
++			name: "invalid number returned",
++			converter: CRConverterFunc(func(in *unstructured.UnstructuredList, targetGV schema.GroupVersion) (*unstructured.UnstructuredList, error) {
++				in.Items[0].SetGroupVersionKind(targetGV.WithKind(in.Items[0].GroupVersionKind().Kind))
++				in.Items = in.Items[:1]
++				return in, nil
++			}),
++			args: args{
++				in: &unstructured.UnstructuredList{Object: map[string]interface{}{
++					"apiVersion": "example.com/v1",
++					"kind":       "FooList",
++				}, Items: []unstructured.Unstructured{
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo1"},
++						"spec":       map[string]interface{}{},
++					}},
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v2",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo2"},
++						"spec":       map[string]interface{}{},
++					}},
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo3"},
++						"spec":       map[string]interface{}{},
++					}},
++				}},
++				target: schema.GroupVersion{Group: "example.com", Version: "v2"},
++			},
++			wantErr: true,
++		},
++		{
++			name: "partial conversion",
++			converter: CRConverterFunc(func(in *unstructured.UnstructuredList, targetGV schema.GroupVersion) (*unstructured.UnstructuredList, error) {
++				in.Items[0].SetGroupVersionKind(targetGV.WithKind(in.Items[0].GroupVersionKind().Kind))
++				return in, nil
++			}),
++			args: args{
++				in: &unstructured.UnstructuredList{Object: map[string]interface{}{
++					"apiVersion": "example.com/v1",
++					"kind":       "FooList",
++				}, Items: []unstructured.Unstructured{
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo1"},
++						"spec":       map[string]interface{}{},
++					}},
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v2",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo2"},
++						"spec":       map[string]interface{}{},
++					}},
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo3"},
++						"spec":       map[string]interface{}{},
++					}},
++				}},
++				target: schema.GroupVersion{Group: "example.com", Version: "v2"},
++			},
++			wantErr: true,
++		},
++		{
++			name: "invalid single version",
++			converter: CRConverterFunc(func(in *unstructured.UnstructuredList, targetGV schema.GroupVersion) (*unstructured.UnstructuredList, error) {
++				in.Items[0].SetGroupVersionKind(targetGV.WithKind(in.Items[0].GroupVersionKind().Kind))
++				return in, nil
++			}),
++			args: args{
++				in: &unstructured.UnstructuredList{Object: map[string]interface{}{
++					"apiVersion": "example.com/v1",
++					"kind":       "FooList",
++				}, Items: []unstructured.Unstructured{
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v3",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo1"},
++						"spec":       map[string]interface{}{},
++					}},
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v2",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo2"},
++						"spec":       map[string]interface{}{},
++					}},
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo3"},
++						"spec":       map[string]interface{}{},
++					}},
++				}},
++				target: schema.GroupVersion{Group: "example.com", Version: "v2"},
++			},
++			wantErr: true,
++		},
++		{
++			name: "invalid list version",
++			converter: CRConverterFunc(func(in *unstructured.UnstructuredList, targetGV schema.GroupVersion) (*unstructured.UnstructuredList, error) {
++				in.Items[0].SetGroupVersionKind(targetGV.WithKind(in.Items[0].GroupVersionKind().Kind))
++				return in, nil
++			}),
++			args: args{
++				in: &unstructured.UnstructuredList{Object: map[string]interface{}{
++					"apiVersion": "example.com/v3",
++					"kind":       "FooList",
++				}, Items: []unstructured.Unstructured{
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo1"},
++						"spec":       map[string]interface{}{},
++					}},
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v2",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo2"},
++						"spec":       map[string]interface{}{},
++					}},
++					{Object: map[string]interface{}{
++						"apiVersion": "example.com/v1",
++						"kind":       "Foo",
++						"metadata":   map[string]interface{}{"name": "foo3"},
++						"spec":       map[string]interface{}{},
++					}},
++				}},
++				target: schema.GroupVersion{Group: "example.com", Version: "v2"},
++			},
++			wantErr: true,
++		},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			c := &delegatingCRConverter{
++				converter: tt.converter,
++				validVersions: map[schema.GroupVersion]bool{
++					{Group: "example.com", Version: "v1"}: true,
++					{Group: "example.com", Version: "v2"}: true,
++				},
++			}
++			got, err := c.ConvertToVersion(tt.args.in, tt.args.target)
++			if (err != nil) != tt.wantErr {
++				t.Errorf("ConvertToVersion() error = %v, wantErr %v", err, tt.wantErr)
++				return
+ 			}
+-			if !reflect.DeepEqual(test.ExpectedObject, actual) {
+-				t.Fatalf("%s: Expected = %v, Actual = %v", test.Name, test.ExpectedObject, actual)
++			if !reflect.DeepEqual(got, tt.want) {
++				t.Errorf("ConvertToVersion() got = %v, want %v", got, tt.want)
+ 			}
+-		}
++		})
+ 	}
+ }
+diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/metrics.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/metrics.go
+--- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/metrics.go
++++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/metrics.go
+@@ -22,7 +22,7 @@ import (
+ 	"sync"
+ 	"time"
+ 
+-	"k8s.io/apimachinery/pkg/runtime"
++	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+ 	"k8s.io/apimachinery/pkg/runtime/schema"
+ 	"k8s.io/component-base/metrics"
+ 	"k8s.io/component-base/metrics/legacyregistry"
+@@ -44,15 +44,15 @@ func newConverterMetricFactory() *converterMetricFactory {
+ 	return &converterMetricFactory{durations: map[string]*metrics.HistogramVec{}, factoryLock: sync.Mutex{}}
+ }
+ 
+-var _ crConverterInterface = &converterMetric{}
++var _ CRConverter = &converterMetric{}
+ 
+ type converterMetric struct {
+-	delegate  crConverterInterface
++	delegate  CRConverter
+ 	latencies *metrics.HistogramVec
+ 	crdName   string
+ }
+ 
+-func (c *converterMetricFactory) addMetrics(crdName string, converter crConverterInterface) (crConverterInterface, error) {
++func (c *converterMetricFactory) addMetrics(crdName string, converter CRConverter) (CRConverter, error) {
+ 	c.factoryLock.Lock()
+ 	defer c.factoryLock.Unlock()
+ 	metric, exists := c.durations["webhook"]
+@@ -74,7 +74,7 @@ func (c *converterMetricFactory) addMetrics(crdName string, converter crConverte
+ 	return &converterMetric{latencies: metric, delegate: converter, crdName: crdName}, nil
+ }
+ 
+-func (m *converterMetric) Convert(in runtime.Object, targetGV schema.GroupVersion) (runtime.Object, error) {
++func (m *converterMetric) Convert(in *unstructured.UnstructuredList, targetGV schema.GroupVersion) (*unstructured.UnstructuredList, error) {
+ 	start := time.Now()
+ 	obj, err := m.delegate.Convert(in, targetGV)
+ 	fromVersion := in.GetObjectKind().GroupVersionKind().Version
+diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/nop_converter.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/nop_converter.go
+--- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/nop_converter.go
++++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/nop_converter.go
+@@ -18,7 +18,6 @@ package conversion
+ 
+ import (
+ 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+-	"k8s.io/apimachinery/pkg/runtime"
+ 	"k8s.io/apimachinery/pkg/runtime/schema"
+ )
+ 
+@@ -26,16 +25,18 @@ import (
+ type nopConverter struct {
+ }
+ 
+-var _ crConverterInterface = &nopConverter{}
++// NewNOPConverter creates a new no-op converter. The only "conversion" it performs is to set the group and version to
++// targetGV.
++func NewNOPConverter() *nopConverter {
++	return &nopConverter{}
++}
++
++var _ CRConverter = &nopConverter{}
+ 
+-// ConvertToVersion converts in object to the given gv in place and returns the same `in` object.
+-func (c *nopConverter) Convert(in runtime.Object, targetGV schema.GroupVersion) (runtime.Object, error) {
+-	// Run the converter on the list items instead of list itself
+-	if list, ok := in.(*unstructured.UnstructuredList); ok {
+-		for i := range list.Items {
+-			list.Items[i].SetGroupVersionKind(targetGV.WithKind(list.Items[i].GroupVersionKind().Kind))
+-		}
++// Convert converts in object to the given gv in place and returns the same `in` object.
++func (c *nopConverter) Convert(list *unstructured.UnstructuredList, targetGV schema.GroupVersion) (*unstructured.UnstructuredList, error) {
++	for i := range list.Items {
++		list.Items[i].SetGroupVersionKind(targetGV.WithKind(list.Items[i].GroupVersionKind().Kind))
+ 	}
+-	in.GetObjectKind().SetGroupVersionKind(targetGV.WithKind(in.GetObjectKind().GroupVersionKind().Kind))
+-	return in, nil
++	return list, nil
+ }
+diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/webhook_converter.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/webhook_converter.go
+--- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/webhook_converter.go
++++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/webhook_converter.go
+@@ -27,15 +27,12 @@ import (
+ 
+ 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+ 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+-	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+-	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
+ 	"k8s.io/apimachinery/pkg/runtime"
+ 	"k8s.io/apimachinery/pkg/runtime/schema"
+ 	"k8s.io/apimachinery/pkg/types"
+ 	"k8s.io/apimachinery/pkg/util/uuid"
+-	"k8s.io/apimachinery/pkg/util/validation/field"
+ 	"k8s.io/apiserver/pkg/util/webhook"
+ 	"k8s.io/client-go/rest"
+ 	"k8s.io/component-base/tracing"
+@@ -102,7 +99,7 @@ func webhookClientConfigForCRD(crd *v1.CustomResourceDefinition) *webhook.Client
+ 	return &ret
+ }
+ 
+-var _ crConverterInterface = &webhookConverter{}
++var _ CRConverter = &webhookConverter{}
+ 
+ func (f *webhookConverterFactory) NewWebhookConverter(crd *v1.CustomResourceDefinition) (*webhookConverter, error) {
+ 	restClient, err := f.clientManager.HookClient(*webhookClientConfigForCRD(crd))
+@@ -119,36 +116,21 @@ func (f *webhookConverterFactory) NewWebhookConverter(crd *v1.CustomResourceDefi
+ 	}, nil
+ }
+ 
+-// getObjectsToConvert returns a list of objects requiring conversion.
+-// if obj is a list, getObjectsToConvert returns a (potentially empty) list of the items that are not already in the desired version.
+-// if obj is not a list, and is already in the desired version, getObjectsToConvert returns an empty list.
+-// if obj is not a list, and is not already in the desired version, getObjectsToConvert returns a list containing only obj.
+-func getObjectsToConvert(obj runtime.Object, apiVersion string) []runtime.RawExtension {
+-	listObj, isList := obj.(*unstructured.UnstructuredList)
+-	var objects []runtime.RawExtension
+-	if isList {
+-		for i := range listObj.Items {
+-			// Only sent item for conversion, if the apiVersion is different
+-			if listObj.Items[i].GetAPIVersion() != apiVersion {
+-				objects = append(objects, runtime.RawExtension{Object: &listObj.Items[i]})
+-			}
+-		}
+-	} else {
+-		if obj.GetObjectKind().GroupVersionKind().GroupVersion().String() != apiVersion {
+-			objects = []runtime.RawExtension{{Object: obj}}
++// createConversionReviewObjects returns ConversionReview request and response objects for the first supported version found in conversionReviewVersions.
++func createConversionReviewObjects(conversionReviewVersions []string, objects *unstructured.UnstructuredList, apiVersion string, requestUID types.UID) (request, response runtime.Object, err error) {
++	rawObjects := make([]runtime.RawExtension, len(objects.Items))
++	for i := range objects.Items {
++		rawObjects[i] = runtime.RawExtension{
++			Object: &objects.Items[i],
+ 		}
+ 	}
+-	return objects
+-}
+ 
+-// createConversionReviewObjects returns ConversionReview request and response objects for the first supported version found in conversionReviewVersions.
+-func createConversionReviewObjects(conversionReviewVersions []string, objects []runtime.RawExtension, apiVersion string, requestUID types.UID) (request, response runtime.Object, err error) {
+ 	for _, version := range conversionReviewVersions {
+ 		switch version {
+ 		case v1beta1.SchemeGroupVersion.Version:
+ 			return &v1beta1.ConversionReview{
+ 				Request: &v1beta1.ConversionRequest{
+-					Objects:           objects,
++					Objects:           rawObjects,
+ 					DesiredAPIVersion: apiVersion,
+ 					UID:               requestUID,
+ 				},
+@@ -157,7 +139,7 @@ func createConversionReviewObjects(conversionReviewVersions []string, objects []
+ 		case v1.SchemeGroupVersion.Version:
+ 			return &v1.ConversionReview{
+ 				Request: &v1.ConversionRequest{
+-					Objects:           objects,
++					Objects:           rawObjects,
+ 					DesiredAPIVersion: apiVersion,
+ 					UID:               requestUID,
+ 				},
+@@ -168,9 +150,13 @@ func createConversionReviewObjects(conversionReviewVersions []string, objects []
+ 	return nil, nil, fmt.Errorf("no supported conversion review versions")
+ }
+ 
+-func getRawExtensionObject(rx runtime.RawExtension) (runtime.Object, error) {
++func getRawExtensionObject(rx runtime.RawExtension) (*unstructured.Unstructured, error) {
+ 	if rx.Object != nil {
+-		return rx.Object, nil
++		u, ok := rx.Object.(*unstructured.Unstructured)
++		if !ok {
++			return nil, fmt.Errorf("unexpected type %T", rx.Object)
++		}
++		return u, nil
+ 	}
+ 	u := unstructured.Unstructured{}
+ 	err := u.UnmarshalJSON(rx.Raw)
+@@ -233,40 +219,16 @@ func getConvertedObjectsFromResponse(expectedUID types.UID, response runtime.Obj
+ 	}
+ }
+ 
+-func (c *webhookConverter) Convert(in runtime.Object, toGV schema.GroupVersion) (runtime.Object, error) {
++func (c *webhookConverter) Convert(in *unstructured.UnstructuredList, toGV schema.GroupVersion) (*unstructured.UnstructuredList, error) {
+ 	ctx := context.TODO()
+-	// In general, the webhook should not do any defaulting or validation. A special case of that is an empty object
+-	// conversion that must result an empty object and practically is the same as nopConverter.
+-	// A smoke test in API machinery calls the converter on empty objects. As this case happens consistently
+-	// it special cased here not to call webhook converter. The test initiated here:
+-	// https://github.com/kubernetes/kubernetes/blob/dbb448bbdcb9e440eee57024ffa5f1698956a054/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go#L201
+-	if isEmptyUnstructuredObject(in) {
+-		return c.nopConverter.Convert(in, toGV)
+-	}
+-	t := time.Now()
+-	listObj, isList := in.(*unstructured.UnstructuredList)
+-
+ 	requestUID := uuid.NewUUID()
+ 	desiredAPIVersion := toGV.String()
+-	objectsToConvert := getObjectsToConvert(in, desiredAPIVersion)
+-	request, response, err := createConversionReviewObjects(c.conversionReviewVersions, objectsToConvert, desiredAPIVersion, requestUID)
++	request, response, err := createConversionReviewObjects(c.conversionReviewVersions, in, desiredAPIVersion, requestUID)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-
+-	objCount := len(objectsToConvert)
+-	if objCount == 0 {
+-		Metrics.ObserveConversionWebhookSuccess(ctx, time.Since(t))
+-		// no objects needed conversion
+-		if !isList {
+-			// for a single item, return as-is
+-			return in, nil
+-		}
+-		// for a list, set the version of the top-level list object (all individual objects are already in the correct version)
+-		out := listObj.DeepCopy()
+-		out.SetAPIVersion(toGV.String())
+-		return out, nil
+-	}
++	t := time.Now()
++	objCount := len(in.Items)
+ 
+ 	ctx, span := tracing.Start(ctx, "Call conversion webhook",
+ 		attribute.String("custom-resource-definition", c.name),
+@@ -281,218 +243,28 @@ func (c *webhookConverter) Convert(in runtime.Object, toGV schema.GroupVersion)
+ 	// TODO: Figure out if adding one second timeout make sense here.
+ 	r := c.restClient.Post().Body(request).Do(ctx)
+ 	if err := r.Into(response); err != nil {
+-		// TODO: Return a webhook specific error to be able to convert it to meta.Status
+ 		Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookCallFailure)
++		// TODO: Return a webhook specific error to be able to convert it to meta.Status
+ 		return nil, fmt.Errorf("conversion webhook for %v failed: %v", in.GetObjectKind().GroupVersionKind(), err)
+ 	}
+ 	span.AddEvent("Request completed")
+ 
+ 	convertedObjects, err := getConvertedObjectsFromResponse(requestUID, response)
+ 	if err != nil {
+-		Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookMalformedResponseFailure)
++		Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookCallFailure)
+ 		return nil, fmt.Errorf("conversion webhook for %v failed: %v", in.GetObjectKind().GroupVersionKind(), err)
+ 	}
+ 
+-	if len(convertedObjects) != len(objectsToConvert) {
+-		Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookPartialResponseFailure)
+-		return nil, fmt.Errorf("conversion webhook for %v returned %d objects, expected %d", in.GetObjectKind().GroupVersionKind(), len(convertedObjects), len(objectsToConvert))
+-	}
+-
+-	if isList {
+-		// start a deepcopy of the input and fill in the converted objects from the response at the right spots.
+-		// The response list might be sparse because objects had the right version already.
+-		convertedList := listObj.DeepCopy()
+-		convertedIndex := 0
+-		for i := range convertedList.Items {
+-			original := &convertedList.Items[i]
+-			if original.GetAPIVersion() == toGV.String() {
+-				// This item has not been sent for conversion, and therefore does not show up in the response.
+-				// convertedList has the right item already.
+-				continue
+-			}
+-			converted, err := getRawExtensionObject(convertedObjects[convertedIndex])
+-			if err != nil {
+-				Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookInvalidConvertedObjectFailure)
+-				return nil, fmt.Errorf("conversion webhook for %v returned invalid converted object at index %v: %v", in.GetObjectKind().GroupVersionKind(), convertedIndex, err)
+-			}
+-			if expected, got := toGV, converted.GetObjectKind().GroupVersionKind().GroupVersion(); expected != got {
+-				Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookInvalidConvertedObjectFailure)
+-				return nil, fmt.Errorf("conversion webhook for %v returned invalid converted object at index %v: invalid groupVersion (expected %v, received %v)", in.GetObjectKind().GroupVersionKind(), convertedIndex, expected, got)
+-			}
+-			if expected, got := original.GetObjectKind().GroupVersionKind().Kind, converted.GetObjectKind().GroupVersionKind().Kind; expected != got {
+-				Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookInvalidConvertedObjectFailure)
+-				return nil, fmt.Errorf("conversion webhook for %v returned invalid converted object at index %v: invalid kind (expected %v, received %v)", in.GetObjectKind().GroupVersionKind(), convertedIndex, expected, got)
+-			}
+-			unstructConverted, ok := converted.(*unstructured.Unstructured)
+-			if !ok {
+-				// this should not happened
+-				Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookInvalidConvertedObjectFailure)
+-				return nil, fmt.Errorf("conversion webhook for %v returned invalid converted object at index %v: invalid type, expected=Unstructured, got=%T", in.GetObjectKind().GroupVersionKind(), convertedIndex, converted)
+-			}
+-			if err := validateConvertedObject(original, unstructConverted); err != nil {
+-				Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookInvalidConvertedObjectFailure)
+-				return nil, fmt.Errorf("conversion webhook for %v returned invalid converted object at index %v: %v", in.GetObjectKind().GroupVersionKind(), convertedIndex, err)
+-			}
+-			if err := restoreObjectMeta(original, unstructConverted); err != nil {
+-				Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookInvalidConvertedObjectFailure)
+-				return nil, fmt.Errorf("conversion webhook for %v returned invalid metadata in object at index %v: %v", in.GetObjectKind().GroupVersionKind(), convertedIndex, err)
+-			}
+-			convertedIndex++
+-			convertedList.Items[i] = *unstructConverted
++	out := &unstructured.UnstructuredList{}
++	out.Items = make([]unstructured.Unstructured, len(convertedObjects))
++	for i := range convertedObjects {
++		u, err := getRawExtensionObject(convertedObjects[i])
++		if err != nil {
++			return nil, err
+ 		}
+-		convertedList.SetAPIVersion(toGV.String())
+-		Metrics.ObserveConversionWebhookSuccess(ctx, time.Since(t))
+-		return convertedList, nil
++		out.Items[i] = *u
+ 	}
+ 
+-	if len(convertedObjects) != 1 {
+-		// This should not happened
+-		Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookNoObjectsReturnedFailure)
+-		return nil, fmt.Errorf("conversion webhook for %v failed, no objects returned", in.GetObjectKind())
+-	}
+-	converted, err := getRawExtensionObject(convertedObjects[0])
+-	if err != nil {
+-		Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookInvalidConvertedObjectFailure)
+-		return nil, err
+-	}
+-	if e, a := toGV, converted.GetObjectKind().GroupVersionKind().GroupVersion(); e != a {
+-		Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookInvalidConvertedObjectFailure)
+-		return nil, fmt.Errorf("conversion webhook for %v returned invalid object at index 0: invalid groupVersion (expected %v, received %v)", in.GetObjectKind().GroupVersionKind(), e, a)
+-	}
+-	if e, a := in.GetObjectKind().GroupVersionKind().Kind, converted.GetObjectKind().GroupVersionKind().Kind; e != a {
+-		Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookInvalidConvertedObjectFailure)
+-		return nil, fmt.Errorf("conversion webhook for %v returned invalid object at index 0: invalid kind (expected %v, received %v)", in.GetObjectKind().GroupVersionKind(), e, a)
+-	}
+-	unstructConverted, ok := converted.(*unstructured.Unstructured)
+-	if !ok {
+-		// this should not happened
+-		Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookInvalidConvertedObjectFailure)
+-		return nil, fmt.Errorf("conversion webhook for %v failed, unexpected type %T at index 0", in.GetObjectKind().GroupVersionKind(), converted)
+-	}
+-	unstructIn, ok := in.(*unstructured.Unstructured)
+-	if !ok {
+-		// this should not happened
+-		Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookInvalidConvertedObjectFailure)
+-		return nil, fmt.Errorf("conversion webhook for %v failed unexpected input type %T", in.GetObjectKind().GroupVersionKind(), in)
+-	}
+-	if err := validateConvertedObject(unstructIn, unstructConverted); err != nil {
+-		Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookInvalidConvertedObjectFailure)
+-		return nil, fmt.Errorf("conversion webhook for %v returned invalid object: %v", in.GetObjectKind().GroupVersionKind(), err)
+-	}
+-	if err := restoreObjectMeta(unstructIn, unstructConverted); err != nil {
+-		Metrics.ObserveConversionWebhookFailure(ctx, time.Since(t), ConversionWebhookInvalidConvertedObjectFailure)
+-		return nil, fmt.Errorf("conversion webhook for %v returned invalid metadata: %v", in.GetObjectKind().GroupVersionKind(), err)
+-	}
+ 	Metrics.ObserveConversionWebhookSuccess(ctx, time.Since(t))
+-	return converted, nil
+-}
+-
+-// validateConvertedObject checks that ObjectMeta fields match, with the exception of
+-// labels and annotations.
+-func validateConvertedObject(in, out *unstructured.Unstructured) error {
+-	if e, a := in.GetKind(), out.GetKind(); e != a {
+-		return fmt.Errorf("must have the same kind: %v != %v", e, a)
+-	}
+-	if e, a := in.GetName(), out.GetName(); e != a {
+-		return fmt.Errorf("must have the same name: %v != %v", e, a)
+-	}
+-	if e, a := in.GetNamespace(), out.GetNamespace(); e != a {
+-		return fmt.Errorf("must have the same namespace: %v != %v", e, a)
+-	}
+-	if e, a := in.GetUID(), out.GetUID(); e != a {
+-		return fmt.Errorf("must have the same UID: %v != %v", e, a)
+-	}
+-	return nil
+-}
+-
+-// restoreObjectMeta deep-copies metadata from original into converted, while preserving labels and annotations from converted.
+-func restoreObjectMeta(original, converted *unstructured.Unstructured) error {
+-	obj, found := converted.Object["metadata"]
+-	if !found {
+-		return fmt.Errorf("missing metadata in converted object")
+-	}
+-	responseMetaData, ok := obj.(map[string]interface{})
+-	if !ok {
+-		return fmt.Errorf("invalid metadata of type %T in converted object", obj)
+-	}
+-
+-	if _, ok := original.Object["metadata"]; !ok {
+-		// the original will always have metadata. But just to be safe, let's clear in converted
+-		// with an empty object instead of nil, to be able to add labels and annotations below.
+-		converted.Object["metadata"] = map[string]interface{}{}
+-	} else {
+-		converted.Object["metadata"] = runtime.DeepCopyJSONValue(original.Object["metadata"])
+-	}
+-
+-	obj = converted.Object["metadata"]
+-	convertedMetaData, ok := obj.(map[string]interface{})
+-	if !ok {
+-		return fmt.Errorf("invalid metadata of type %T in input object", obj)
+-	}
+-
+-	for _, fld := range []string{"labels", "annotations"} {
+-		obj, found := responseMetaData[fld]
+-		if !found || obj == nil {
+-			delete(convertedMetaData, fld)
+-			continue
+-		}
+-		responseField, ok := obj.(map[string]interface{})
+-		if !ok {
+-			return fmt.Errorf("invalid metadata.%s of type %T in converted object", fld, obj)
+-		}
+-
+-		originalField, ok := convertedMetaData[fld].(map[string]interface{})
+-		if !ok && convertedMetaData[fld] != nil {
+-			return fmt.Errorf("invalid metadata.%s of type %T in original object", fld, convertedMetaData[fld])
+-		}
+-
+-		somethingChanged := len(originalField) != len(responseField)
+-		for k, v := range responseField {
+-			if _, ok := v.(string); !ok {
+-				return fmt.Errorf("metadata.%s[%s] must be a string, but is %T in converted object", fld, k, v)
+-			}
+-			if originalField[k] != interface{}(v) {
+-				somethingChanged = true
+-			}
+-		}
+-
+-		if somethingChanged {
+-			stringMap := make(map[string]string, len(responseField))
+-			for k, v := range responseField {
+-				stringMap[k] = v.(string)
+-			}
+-			var errs field.ErrorList
+-			if fld == "labels" {
+-				errs = metav1validation.ValidateLabels(stringMap, field.NewPath("metadata", "labels"))
+-			} else {
+-				errs = apivalidation.ValidateAnnotations(stringMap, field.NewPath("metadata", "annotation"))
+-			}
+-			if len(errs) > 0 {
+-				return errs.ToAggregate()
+-			}
+-		}
+-
+-		convertedMetaData[fld] = responseField
+-	}
+-
+-	return nil
+-}
+-
+-// isEmptyUnstructuredObject returns true if in is an empty unstructured object, i.e. an unstructured object that does
+-// not have any field except apiVersion and kind.
+-func isEmptyUnstructuredObject(in runtime.Object) bool {
+-	u, ok := in.(*unstructured.Unstructured)
+-	if !ok {
+-		return false
+-	}
+-	if len(u.Object) != 2 {
+-		return false
+-	}
+-	if _, ok := u.Object["kind"]; !ok {
+-		return false
+-	}
+-	if _, ok := u.Object["apiVersion"]; !ok {
+-		return false
+-	}
+-	return true
++	return out, nil
+ }
+diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/webhook_converter_test.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/webhook_converter_test.go
+--- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/webhook_converter_test.go
++++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/webhook_converter_test.go
+@@ -61,7 +61,7 @@ func TestRestoreObjectMeta(t *testing.T) {
+ 		{"invalid original metadata",
+ 			map[string]interface{}{"metadata": []interface{}{"foo"}},
+ 			map[string]interface{}{"metadata": map[string]interface{}{}, "spec": map[string]interface{}{}},
+-			map[string]interface{}{"metadata": []interface{}{"foo"}, "spec": map[string]interface{}{}},
++			map[string]interface{}{"metadata": map[string]interface{}{}, "spec": map[string]interface{}{}},
+ 			true,
+ 		},
+ 		{"changed label, annotations and non-label",
+@@ -206,81 +206,19 @@ func TestRestoreObjectMeta(t *testing.T) {
+ 	}
+ }
+ 
+-func TestGetObjectsToConvert(t *testing.T) {
+-	v1Object := &unstructured.Unstructured{Object: map[string]interface{}{"apiVersion": "foo/v1", "kind": "Widget", "metadata": map[string]interface{}{"name": "myv1"}}}
+-	v2Object := &unstructured.Unstructured{Object: map[string]interface{}{"apiVersion": "foo/v2", "kind": "Widget", "metadata": map[string]interface{}{"name": "myv2"}}}
+-	v3Object := &unstructured.Unstructured{Object: map[string]interface{}{"apiVersion": "foo/v3", "kind": "Widget", "metadata": map[string]interface{}{"name": "myv3"}}}
+-
+-	testcases := []struct {
+-		Name       string
+-		Object     runtime.Object
+-		APIVersion string
+-
+-		ExpectObjects []runtime.RawExtension
+-	}{
+-		{
+-			Name:          "empty list",
+-			Object:        &unstructured.UnstructuredList{},
+-			APIVersion:    "foo/v1",
+-			ExpectObjects: nil,
+-		},
+-		{
+-			Name: "one-item list, in desired version",
+-			Object: &unstructured.UnstructuredList{
+-				Items: []unstructured.Unstructured{*v1Object},
+-			},
+-			APIVersion:    "foo/v1",
+-			ExpectObjects: nil,
+-		},
+-		{
+-			Name: "one-item list, not in desired version",
+-			Object: &unstructured.UnstructuredList{
+-				Items: []unstructured.Unstructured{*v2Object},
+-			},
+-			APIVersion:    "foo/v1",
+-			ExpectObjects: []runtime.RawExtension{{Object: v2Object}},
+-		},
+-		{
+-			Name: "multi-item list, in desired version",
+-			Object: &unstructured.UnstructuredList{
+-				Items: []unstructured.Unstructured{*v1Object, *v1Object, *v1Object},
+-			},
+-			APIVersion:    "foo/v1",
+-			ExpectObjects: nil,
+-		},
+-		{
+-			Name: "multi-item list, mixed versions",
+-			Object: &unstructured.UnstructuredList{
+-				Items: []unstructured.Unstructured{*v1Object, *v2Object, *v3Object},
++func TestCreateConversionReviewObjects(t *testing.T) {
++	objects := &unstructured.UnstructuredList{
++		Items: []unstructured.Unstructured{
++			{
++				Object: map[string]interface{}{"apiVersion": "foo/v2", "Kind": "Widget"},
+ 			},
+-			APIVersion:    "foo/v1",
+-			ExpectObjects: []runtime.RawExtension{{Object: v2Object}, {Object: v3Object}},
+-		},
+-		{
+-			Name:          "single item, in desired version",
+-			Object:        v1Object,
+-			APIVersion:    "foo/v1",
+-			ExpectObjects: nil,
+-		},
+-		{
+-			Name:          "single item, not in desired version",
+-			Object:        v2Object,
+-			APIVersion:    "foo/v1",
+-			ExpectObjects: []runtime.RawExtension{{Object: v2Object}},
+ 		},
+ 	}
+-	for _, tc := range testcases {
+-		t.Run(tc.Name, func(t *testing.T) {
+-			if objects := getObjectsToConvert(tc.Object, tc.APIVersion); !reflect.DeepEqual(objects, tc.ExpectObjects) {
+-				t.Errorf("unexpected diff: %s", cmp.Diff(tc.ExpectObjects, objects))
+-			}
+-		})
+-	}
+-}
+ 
+-func TestCreateConversionReviewObjects(t *testing.T) {
+-	objects := []runtime.RawExtension{
+-		{Object: &unstructured.Unstructured{Object: map[string]interface{}{"apiVersion": "foo/v2", "Kind": "Widget"}}},
++	rawObjects := []runtime.RawExtension{
++		{
++			Object: &objects.Items[0],
++		},
+ 	}
+ 
+ 	testcases := []struct {
+@@ -300,7 +238,7 @@ func TestCreateConversionReviewObjects(t *testing.T) {
+ 			Name:     "v1",
+ 			Versions: []string{"v1", "v1beta1", "v2"},
+ 			ExpectRequest: &v1.ConversionReview{
+-				Request:  &v1.ConversionRequest{UID: "uid", DesiredAPIVersion: "foo/v1", Objects: objects},
++				Request:  &v1.ConversionRequest{UID: "uid", DesiredAPIVersion: "foo/v1", Objects: rawObjects},
+ 				Response: &v1.ConversionResponse{},
+ 			},
+ 			ExpectResponse: &v1.ConversionReview{},
+@@ -309,7 +247,7 @@ func TestCreateConversionReviewObjects(t *testing.T) {
+ 			Name:     "v1beta1",
+ 			Versions: []string{"v1beta1", "v1", "v2"},
+ 			ExpectRequest: &v1beta1.ConversionReview{
+-				Request:  &v1beta1.ConversionRequest{UID: "uid", DesiredAPIVersion: "foo/v1", Objects: objects},
++				Request:  &v1beta1.ConversionRequest{UID: "uid", DesiredAPIVersion: "foo/v1", Objects: rawObjects},
+ 				Response: &v1beta1.ConversionResponse{},
+ 			},
+ 			ExpectResponse: &v1beta1.ConversionReview{},
+diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler.go
+--- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler.go
++++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler.go
+@@ -75,8 +75,6 @@ import (
+ 	"k8s.io/apiserver/pkg/features"
+ 	"k8s.io/apiserver/pkg/registry/generic"
+ 	genericfilters "k8s.io/apiserver/pkg/server/filters"
+-	utilfeature "k8s.io/apiserver/pkg/util/feature"
+-	"k8s.io/apiserver/pkg/util/webhook"
+ 	"k8s.io/apiserver/pkg/warning"
+ 	"k8s.io/client-go/scale"
+ 	"k8s.io/client-go/scale/scheme/autoscalingv1"
+@@ -111,7 +109,7 @@ type crdHandler struct {
+ 	// CRD establishing process for HA clusters.
+ 	masterCount int
+ 
+-	converterFactory *conversion.CRConverterFactory
++	converterFactory conversion.Factory
+ 
+ 	// so that we can do create on update.
+ 	authorizer authorizer.Authorizer
+@@ -174,14 +172,18 @@ func NewCustomResourceDefinitionHandler(
+ 	restOptionsGetter generic.RESTOptionsGetter,
+ 	admission admission.Interface,
+ 	establishingController *establish.EstablishingController,
+-	serviceResolver webhook.ServiceResolver,
+-	authResolverWrapper webhook.AuthenticationInfoResolverWrapper,
++	converterFactory conversion.Factory,
+ 	masterCount int,
+ 	authorizer authorizer.Authorizer,
+ 	requestTimeout time.Duration,
+ 	minRequestTimeout time.Duration,
+ 	staticOpenAPISpec map[string]*spec.Schema,
+ 	maxRequestBodyBytes int64) (*crdHandler, error) {
++
++	if converterFactory == nil {
++		return nil, fmt.Errorf("converterFactory is required")
++	}
++
+ 	ret := &crdHandler{
+ 		versionDiscoveryHandler: versionDiscoveryHandler,
+ 		groupDiscoveryHandler:   groupDiscoveryHandler,
+@@ -191,6 +193,7 @@ func NewCustomResourceDefinitionHandler(
+ 		restOptionsGetter:       restOptionsGetter,
+ 		admission:               admission,
+ 		establishingController:  establishingController,
++		converterFactory:        converterFactory,
+ 		masterCount:             masterCount,
+ 		authorizer:              authorizer,
+ 		requestTimeout:          requestTimeout,
+@@ -205,11 +208,6 @@ func NewCustomResourceDefinitionHandler(
+ 			ret.removeDeadStorage()
+ 		},
+ 	})
+-	crConverterFactory, err := conversion.NewCRConverterFactory(serviceResolver, authResolverWrapper)
+-	if err != nil {
+-		return nil, err
+-	}
+-	ret.converterFactory = crConverterFactory
+ 
+ 	ret.customStorage.Store(crdStorageMap{})
+ 
+@@ -698,7 +696,12 @@ func (r *crdHandler) getOrCreateServingInfoFor(uid types.UID, name string) (*crd
+ 		}
+ 	}
+ 
+-	safeConverter, unsafeConverter, err := r.converterFactory.NewConverter(crd)
++	converter, err := r.converterFactory.NewConverter(crd)
++	if err != nil {
++		return nil, fmt.Errorf("error creating converter for %s: %w", crd.Name, err)
++	}
++
++	safeConverter, unsafeConverter, err := conversion.NewDelegatingConverter(crd, converter)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_test.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_test.go
+--- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_test.go
++++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_test.go
+@@ -22,13 +22,10 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"io"
+-	"net"
+ 	"net/http"
+ 	"net/http/httptest"
+-	"net/url"
+ 	"os"
+ 	"path/filepath"
+-	"strconv"
+ 	"testing"
+ 	"time"
+ 
+@@ -60,7 +57,6 @@ import (
+ 	"k8s.io/apiserver/pkg/server/options"
+ 	"k8s.io/apiserver/pkg/storage/cacher"
+ 	etcd3testing "k8s.io/apiserver/pkg/storage/etcd3/testing"
+-	"k8s.io/apiserver/pkg/util/webhook"
+ 	"k8s.io/client-go/tools/cache"
+ 	"k8s.io/kube-openapi/pkg/validation/spec"
+ )
+@@ -120,11 +116,7 @@ func TestConvertFieldLabel(t *testing.T) {
+ 			} else {
+ 				crd.Spec.Scope = apiextensionsv1.NamespaceScoped
+ 			}
+-			f, err := conversion.NewCRConverterFactory(nil, nil)
+-			if err != nil {
+-				t.Fatal(err)
+-			}
+-			_, c, err := f.NewConverter(&crd)
++			_, c, err := conversion.NewDelegatingConverter(&crd, conversion.NewNOPConverter())
+ 			if err != nil {
+ 				t.Fatalf("Failed to create CR converter. error: %v", err)
+ 			}
+@@ -466,6 +458,12 @@ func TestHandlerConversionWithoutWatchCache(t *testing.T) {
+ 	testHandlerConversion(t, false)
+ }
+ 
++type noneConverterFactory struct{}
++
++func (f *noneConverterFactory) NewConverter(_ *apiextensionsv1.CustomResourceDefinition) (conversion.CRConverter, error) {
++	return conversion.NewNOPConverter(), nil
++}
++
+ func testHandlerConversion(t *testing.T, enableWatchCache bool) {
+ 	cl := fake.NewSimpleClientset()
+ 	informers := informers.NewSharedInformerFactory(fake.NewSimpleClientset(), 0)
+@@ -510,8 +508,7 @@ func testHandlerConversion(t *testing.T, enableWatchCache bool) {
+ 		restOptionsGetter,
+ 		dummyAdmissionImpl{},
+ 		&establish.EstablishingController{},
+-		dummyServiceResolverImpl{},
+-		func(r webhook.AuthenticationInfoResolver) webhook.AuthenticationInfoResolver { return r },
++		&noneConverterFactory{},
+ 		1,
+ 		dummyAuthorizerImpl{},
+ 		time.Minute, time.Minute, nil, 3*1024*1024)
+@@ -849,12 +846,6 @@ func (dummyAuthorizerImpl) Authorize(ctx context.Context, a authorizer.Attribute
+ 	return authorizer.DecisionAllow, "", nil
+ }
+ 
+-type dummyServiceResolverImpl struct{}
+-
+-func (dummyServiceResolverImpl) ResolveEndpoint(namespace, name string, port int32) (*url.URL, error) {
+-	return &url.URL{Scheme: "https", Host: net.JoinHostPort(name+"."+namespace+".svc", strconv.Itoa(int(port)))}, nil
+-}
+-
+ var multiVersionFixture = &apiextensionsv1.CustomResourceDefinition{
+ 	ObjectMeta: metav1.ObjectMeta{Name: "multiversion.stable.example.com", UID: types.UID("12345")},
+ 	Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/cmd/server/options/options.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/cmd/server/options/options.go
+--- a/staging/src/k8s.io/apiextensions-apiserver/pkg/cmd/server/options/options.go
++++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/cmd/server/options/options.go
+@@ -23,11 +23,12 @@ import (
+ 	"net/url"
+ 
+ 	"github.com/spf13/pflag"
+-	noopoteltrace "go.opentelemetry.io/otel/trace/noop"
++	oteltrace "go.opentelemetry.io/otel/trace/noop"
+ 
+ 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+ 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+ 	"k8s.io/apiextensions-apiserver/pkg/apiserver"
++	"k8s.io/apiextensions-apiserver/pkg/apiserver/conversion"
+ 	generatedopenapi "k8s.io/apiextensions-apiserver/pkg/generated/openapi"
+ 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+ 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured/unstructuredscheme"
+@@ -120,12 +121,19 @@ func (o CustomResourceDefinitionsServerOptions) Config() (*apiserver.Config, err
+ 	}
+ 
+ 	serverConfig.OpenAPIV3Config = genericapiserver.DefaultOpenAPIV3Config(openapi.GetOpenAPIDefinitionsWithoutDisabledFeatures(generatedopenapi.GetOpenAPIDefinitions), openapinamer.NewDefinitionNamer(apiserver.Scheme, scheme.Scheme))
++
++	serviceResolver := &serviceResolver{serverConfig.SharedInformerFactory.Core().V1().Services().Lister()}
++	authResolverWrapper := webhook.NewDefaultAuthenticationInfoResolverWrapper(nil, nil, serverConfig.LoopbackClientConfig, oteltrace.NewTracerProvider())
++	conversionFactory, err := conversion.NewCRConverterFactory(serviceResolver, authResolverWrapper)
++	if err != nil {
++		return nil, err
++	}
++
+ 	config := &apiserver.Config{
+ 		GenericConfig: serverConfig,
+ 		ExtraConfig: apiserver.ExtraConfig{
+ 			CRDRESTOptionsGetter: NewCRDRESTOptionsGetter(*o.RecommendedOptions.Etcd, serverConfig.ResourceTransformers, serverConfig.StorageObjectCountTracker),
+-			ServiceResolver:      &serviceResolver{serverConfig.SharedInformerFactory.Core().V1().Services().Lister()},
+-			AuthResolverWrapper:  webhook.NewDefaultAuthenticationInfoResolverWrapper(nil, nil, serverConfig.LoopbackClientConfig, noopoteltrace.NewTracerProvider()),
++			ConversionFactory:    conversionFactory,
+ 		},
+ 	}
+ 	return config, nil
+diff --git a/test/integration/apiserver/fixtures-117260/apply.yaml b/test/integration/apiserver/fixtures-117260/apply.yaml
+new file mode 100644
+--- /dev/null
++++ b/test/integration/apiserver/fixtures-117260/apply.yaml
+@@ -0,0 +1,10 @@
++apiVersion: source.toolkit.fluxcd.io/v1beta2
++kind: GitRepository
++metadata:
++  name: flux-monitoring
++  namespace: flux-system
++spec:
++  interval: 24h
++  url: https://github.com/fluxcd/flux2
++  ref:
++    branch: main
+\ No newline at end of file
+diff --git a/test/integration/apiserver/fixtures-117260/crd.yaml b/test/integration/apiserver/fixtures-117260/crd.yaml
+new file mode 100644
+--- /dev/null
++++ b/test/integration/apiserver/fixtures-117260/crd.yaml
+@@ -0,0 +1,1175 @@
++apiVersion: apiextensions.k8s.io/v1
++kind: CustomResourceDefinition
++metadata:
++  annotations:
++    controller-gen.kubebuilder.io/version: v0.11.1
++  creationTimestamp: null
++  name: gitrepositories.source.toolkit.fluxcd.io
++spec:
++  group: source.toolkit.fluxcd.io
++  names:
++    kind: GitRepository
++    listKind: GitRepositoryList
++    plural: gitrepositories
++    shortNames:
++    - gitrepo
++    singular: gitrepository
++  scope: Namespaced
++  versions:
++  - additionalPrinterColumns:
++    - jsonPath: .spec.url
++      name: URL
++      type: string
++    - jsonPath: .metadata.creationTimestamp
++      name: Age
++      type: date
++    - jsonPath: .status.conditions[?(@.type=="Ready")].status
++      name: Ready
++      type: string
++    - jsonPath: .status.conditions[?(@.type=="Ready")].message
++      name: Status
++      type: string
++    name: v1
++    schema:
++      openAPIV3Schema:
++        description: GitRepository is the Schema for the gitrepositories API.
++        properties:
++          apiVersion:
++            description: 'APIVersion defines the versioned schema of this representation
++              of an object. Servers should convert recognized schemas to the latest
++              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
++            type: string
++          kind:
++            description: 'Kind is a string value representing the REST resource this
++              object represents. Servers may infer this from the endpoint the client
++              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
++            type: string
++          metadata:
++            type: object
++          spec:
++            description: GitRepositorySpec specifies the required configuration to
++              produce an Artifact for a Git repository.
++            properties:
++              ignore:
++                description: Ignore overrides the set of excluded patterns in the
++                  .sourceignore format (which is the same as .gitignore). If not provided,
++                  a default will be used, consult the documentation for your version
++                  to find out what those are.
++                type: string
++              include:
++                description: Include specifies a list of GitRepository resources which
++                  Artifacts should be included in the Artifact produced for this GitRepository.
++                items:
++                  description: GitRepositoryInclude specifies a local reference to
++                    a GitRepository which Artifact (sub-)contents must be included,
++                    and where they should be placed.
++                  properties:
++                    fromPath:
++                      description: FromPath specifies the path to copy contents from,
++                        defaults to the root of the Artifact.
++                      type: string
++                    repository:
++                      description: GitRepositoryRef specifies the GitRepository which
++                        Artifact contents must be included.
++                      properties:
++                        name:
++                          description: Name of the referent.
++                          type: string
++                      required:
++                      - name
++                      type: object
++                    toPath:
++                      description: ToPath specifies the path to copy contents to,
++                        defaults to the name of the GitRepositoryRef.
++                      type: string
++                  required:
++                  - repository
++                  type: object
++                type: array
++              interval:
++                description: Interval at which to check the GitRepository for updates.
++                pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
++                type: string
++              recurseSubmodules:
++                description: RecurseSubmodules enables the initialization of all submodules
++                  within the GitRepository as cloned from the URL, using their default
++                  settings.
++                type: boolean
++              ref:
++                description: Reference specifies the Git reference to resolve and
++                  monitor for changes, defaults to the 'master' branch.
++                properties:
++                  branch:
++                    description: Branch to check out, defaults to 'master' if no other
++                      field is defined.
++                    type: string
++                  commit:
++                    description: "Commit SHA to check out, takes precedence over all
++                      reference fields. \n This can be combined with Branch to shallow
++                      clone the branch, in which the commit is expected to exist."
++                    type: string
++                  name:
++                    description: "Name of the reference to check out; takes precedence
++                      over Branch, Tag and SemVer. \n It must be a valid Git reference:
++                      https://git-scm.com/docs/git-check-ref-format#_description Examples:
++                      \"refs/heads/main\", \"refs/tags/v0.1.0\", \"refs/pull/420/head\",
++                      \"refs/merge-requests/1/head\""
++                    type: string
++                  semver:
++                    description: SemVer tag expression to check out, takes precedence
++                      over Tag.
++                    type: string
++                  tag:
++                    description: Tag to check out, takes precedence over Branch.
++                    type: string
++                type: object
++              secretRef:
++                description: SecretRef specifies the Secret containing authentication
++                  credentials for the GitRepository. For HTTPS repositories the Secret
++                  must contain 'username' and 'password' fields for basic auth or
++                  'bearerToken' field for token auth. For SSH repositories the Secret
++                  must contain 'identity' and 'known_hosts' fields.
++                properties:
++                  name:
++                    description: Name of the referent.
++                    type: string
++                required:
++                - name
++                type: object
++              suspend:
++                description: Suspend tells the controller to suspend the reconciliation
++                  of this GitRepository.
++                type: boolean
++              timeout:
++                default: 60s
++                description: Timeout for Git operations like cloning, defaults to
++                  60s.
++                pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m))+$
++                type: string
++              url:
++                description: URL specifies the Git repository URL, it can be an HTTP/S
++                  or SSH address.
++                pattern: ^(http|https|ssh)://.*$
++                type: string
++              verify:
++                description: Verification specifies the configuration to verify the
++                  Git commit signature(s).
++                properties:
++                  mode:
++                    description: Mode specifies what Git object should be verified,
++                      currently ('head').
++                    enum:
++                    - head
++                    type: string
++                  secretRef:
++                    description: SecretRef specifies the Secret containing the public
++                      keys of trusted Git authors.
++                    properties:
++                      name:
++                        description: Name of the referent.
++                        type: string
++                    required:
++                    - name
++                    type: object
++                required:
++                - mode
++                - secretRef
++                type: object
++            required:
++            - interval
++            - url
++            type: object
++          status:
++            default:
++              observedGeneration: -1
++            description: GitRepositoryStatus records the observed state of a Git repository.
++            properties:
++              artifact:
++                description: Artifact represents the last successful GitRepository
++                  reconciliation.
++                properties:
++                  digest:
++                    description: Digest is the digest of the file in the form of '<algorithm>:<checksum>'.
++                    pattern: ^[a-z0-9]+(?:[.+_-][a-z0-9]+)*:[a-zA-Z0-9=_-]+$
++                    type: string
++                  lastUpdateTime:
++                    description: LastUpdateTime is the timestamp corresponding to
++                      the last update of the Artifact.
++                    format: date-time
++                    type: string
++                  metadata:
++                    additionalProperties:
++                      type: string
++                    description: Metadata holds upstream information such as OCI annotations.
++                    type: object
++                  path:
++                    description: Path is the relative file path of the Artifact. It
++                      can be used to locate the file in the root of the Artifact storage
++                      on the local file system of the controller managing the Source.
++                    type: string
++                  revision:
++                    description: Revision is a human-readable identifier traceable
++                      in the origin source system. It can be a Git commit SHA, Git
++                      tag, a Helm chart version, etc.
++                    type: string
++                  size:
++                    description: Size is the number of bytes in the file.
++                    format: int64
++                    type: integer
++                  url:
++                    description: URL is the HTTP address of the Artifact as exposed
++                      by the controller managing the Source. It can be used to retrieve
++                      the Artifact for consumption, e.g. by another controller applying
++                      the Artifact contents.
++                    type: string
++                required:
++                - lastUpdateTime
++                - path
++                - revision
++                - url
++                type: object
++              conditions:
++                description: Conditions holds the conditions for the GitRepository.
++                items:
++                  description: "Condition contains details for one aspect of the current
++                    state of this API Resource. --- This struct is intended for direct
++                    use as an array at the field path .status.conditions.  For example,
++                    \n type FooStatus struct{ // Represents the observations of a
++                    foo's current state. // Known .status.conditions.type are: \"Available\",
++                    \"Progressing\", and \"Degraded\" // +patchMergeKey=type // +patchStrategy=merge
++                    // +listType=map // +listMapKey=type Conditions []metav1.Condition
++                    `json:\"conditions,omitempty\" patchStrategy:\"merge\" patchMergeKey:\"type\"
++                    protobuf:\"bytes,1,rep,name=conditions\"` \n // other fields }"
++                  properties:
++                    lastTransitionTime:
++                      description: lastTransitionTime is the last time the condition
++                        transitioned from one status to another. This should be when
++                        the underlying condition changed.  If that is not known, then
++                        using the time when the API field changed is acceptable.
++                      format: date-time
++                      type: string
++                    message:
++                      description: message is a human readable message indicating
++                        details about the transition. This may be an empty string.
++                      maxLength: 32768
++                      type: string
++                    observedGeneration:
++                      description: observedGeneration represents the .metadata.generation
++                        that the condition was set based upon. For instance, if .metadata.generation
++                        is currently 12, but the .status.conditions[x].observedGeneration
++                        is 9, the condition is out of date with respect to the current
++                        state of the instance.
++                      format: int64
++                      minimum: 0
++                      type: integer
++                    reason:
++                      description: reason contains a programmatic identifier indicating
++                        the reason for the condition's last transition. Producers
++                        of specific condition types may define expected values and
++                        meanings for this field, and whether the values are considered
++                        a guaranteed API. The value should be a CamelCase string.
++                        This field may not be empty.
++                      maxLength: 1024
++                      minLength: 1
++                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
++                      type: string
++                    status:
++                      description: status of the condition, one of True, False, Unknown.
++                      enum:
++                      - "True"
++                      - "False"
++                      - Unknown
++                      type: string
++                    type:
++                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
++                        --- Many .condition.type values are consistent across resources
++                        like Available, but because arbitrary conditions can be useful
++                        (see .node.status.conditions), the ability to deconflict is
++                        important. The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
++                      maxLength: 316
++                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
++                      type: string
++                  required:
++                  - lastTransitionTime
++                  - message
++                  - reason
++                  - status
++                  - type
++                  type: object
++                type: array
++              includedArtifacts:
++                description: IncludedArtifacts contains a list of the last successfully
++                  included Artifacts as instructed by GitRepositorySpec.Include.
++                items:
++                  description: Artifact represents the output of a Source reconciliation.
++                  properties:
++                    digest:
++                      description: Digest is the digest of the file in the form of
++                        '<algorithm>:<checksum>'.
++                      pattern: ^[a-z0-9]+(?:[.+_-][a-z0-9]+)*:[a-zA-Z0-9=_-]+$
++                      type: string
++                    lastUpdateTime:
++                      description: LastUpdateTime is the timestamp corresponding to
++                        the last update of the Artifact.
++                      format: date-time
++                      type: string
++                    metadata:
++                      additionalProperties:
++                        type: string
++                      description: Metadata holds upstream information such as OCI
++                        annotations.
++                      type: object
++                    path:
++                      description: Path is the relative file path of the Artifact.
++                        It can be used to locate the file in the root of the Artifact
++                        storage on the local file system of the controller managing
++                        the Source.
++                      type: string
++                    revision:
++                      description: Revision is a human-readable identifier traceable
++                        in the origin source system. It can be a Git commit SHA, Git
++                        tag, a Helm chart version, etc.
++                      type: string
++                    size:
++                      description: Size is the number of bytes in the file.
++                      format: int64
++                      type: integer
++                    url:
++                      description: URL is the HTTP address of the Artifact as exposed
++                        by the controller managing the Source. It can be used to retrieve
++                        the Artifact for consumption, e.g. by another controller applying
++                        the Artifact contents.
++                      type: string
++                  required:
++                  - lastUpdateTime
++                  - path
++                  - revision
++                  - url
++                  type: object
++                type: array
++              lastHandledReconcileAt:
++                description: LastHandledReconcileAt holds the value of the most recent
++                  reconcile request value, so a change of the annotation value can
++                  be detected.
++                type: string
++              observedGeneration:
++                description: ObservedGeneration is the last observed generation of
++                  the GitRepository object.
++                format: int64
++                type: integer
++              observedIgnore:
++                description: ObservedIgnore is the observed exclusion patterns used
++                  for constructing the source artifact.
++                type: string
++              observedInclude:
++                description: ObservedInclude is the observed list of GitRepository
++                  resources used to produce the current Artifact.
++                items:
++                  description: GitRepositoryInclude specifies a local reference to
++                    a GitRepository which Artifact (sub-)contents must be included,
++                    and where they should be placed.
++                  properties:
++                    fromPath:
++                      description: FromPath specifies the path to copy contents from,
++                        defaults to the root of the Artifact.
++                      type: string
++                    repository:
++                      description: GitRepositoryRef specifies the GitRepository which
++                        Artifact contents must be included.
++                      properties:
++                        name:
++                          description: Name of the referent.
++                          type: string
++                      required:
++                      - name
++                      type: object
++                    toPath:
++                      description: ToPath specifies the path to copy contents to,
++                        defaults to the name of the GitRepositoryRef.
++                      type: string
++                  required:
++                  - repository
++                  type: object
++                type: array
++              observedRecurseSubmodules:
++                description: ObservedRecurseSubmodules is the observed resource submodules
++                  configuration used to produce the current Artifact.
++                type: boolean
++            type: object
++        type: object
++    served: true
++    storage: true
++    subresources:
++      status: {}
++  - additionalPrinterColumns:
++    - jsonPath: .spec.url
++      name: URL
++      type: string
++    - jsonPath: .status.conditions[?(@.type=="Ready")].status
++      name: Ready
++      type: string
++    - jsonPath: .status.conditions[?(@.type=="Ready")].message
++      name: Status
++      type: string
++    - jsonPath: .metadata.creationTimestamp
++      name: Age
++      type: date
++    deprecated: true
++    deprecationWarning: v1beta1 GitRepository is deprecated, upgrade to v1
++    name: v1beta1
++    schema:
++      openAPIV3Schema:
++        description: GitRepository is the Schema for the gitrepositories API
++        properties:
++          apiVersion:
++            description: 'APIVersion defines the versioned schema of this representation
++              of an object. Servers should convert recognized schemas to the latest
++              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
++            type: string
++          kind:
++            description: 'Kind is a string value representing the REST resource this
++              object represents. Servers may infer this from the endpoint the client
++              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
++            type: string
++          metadata:
++            type: object
++          spec:
++            description: GitRepositorySpec defines the desired state of a Git repository.
++            properties:
++              accessFrom:
++                description: AccessFrom defines an Access Control List for allowing
++                  cross-namespace references to this object.
++                properties:
++                  namespaceSelectors:
++                    description: NamespaceSelectors is the list of namespace selectors
++                      to which this ACL applies. Items in this list are evaluated
++                      using a logical OR operation.
++                    items:
++                      description: NamespaceSelector selects the namespaces to which
++                        this ACL applies. An empty map of MatchLabels matches all
++                        namespaces in a cluster.
++                      properties:
++                        matchLabels:
++                          additionalProperties:
++                            type: string
++                          description: MatchLabels is a map of {key,value} pairs.
++                            A single {key,value} in the matchLabels map is equivalent
++                            to an element of matchExpressions, whose key field is
++                            "key", the operator is "In", and the values array contains
++                            only "value". The requirements are ANDed.
++                          type: object
++                      type: object
++                    type: array
++                required:
++                - namespaceSelectors
++                type: object
++              gitImplementation:
++                default: go-git
++                description: Determines which git client library to use. Defaults
++                  to go-git, valid values are ('go-git', 'libgit2').
++                enum:
++                - go-git
++                - libgit2
++                type: string
++              ignore:
++                description: Ignore overrides the set of excluded patterns in the
++                  .sourceignore format (which is the same as .gitignore). If not provided,
++                  a default will be used, consult the documentation for your version
++                  to find out what those are.
++                type: string
++              include:
++                description: Extra git repositories to map into the repository
++                items:
++                  description: GitRepositoryInclude defines a source with a from and
++                    to path.
++                  properties:
++                    fromPath:
++                      description: The path to copy contents from, defaults to the
++                        root directory.
++                      type: string
++                    repository:
++                      description: Reference to a GitRepository to include.
++                      properties:
++                        name:
++                          description: Name of the referent.
++                          type: string
++                      required:
++                      - name
++                      type: object
++                    toPath:
++                      description: The path to copy contents to, defaults to the name
++                        of the source ref.
++                      type: string
++                  required:
++                  - repository
++                  type: object
++                type: array
++              interval:
++                description: The interval at which to check for repository updates.
++                type: string
++              recurseSubmodules:
++                description: When enabled, after the clone is created, initializes
++                  all submodules within, using their default settings. This option
++                  is available only when using the 'go-git' GitImplementation.
++                type: boolean
++              ref:
++                description: The Git reference to checkout and monitor for changes,
++                  defaults to master branch.
++                properties:
++                  branch:
++                    description: The Git branch to checkout, defaults to master.
++                    type: string
++                  commit:
++                    description: The Git commit SHA to checkout, if specified Tag
++                      filters will be ignored.
++                    type: string
++                  semver:
++                    description: The Git tag semver expression, takes precedence over
++                      Tag.
++                    type: string
++                  tag:
++                    description: The Git tag to checkout, takes precedence over Branch.
++                    type: string
++                type: object
++              secretRef:
++                description: The secret name containing the Git credentials. For HTTPS
++                  repositories the secret must contain username and password fields.
++                  For SSH repositories the secret must contain identity and known_hosts
++                  fields.
++                properties:
++                  name:
++                    description: Name of the referent.
++                    type: string
++                required:
++                - name
++                type: object
++              suspend:
++                description: This flag tells the controller to suspend the reconciliation
++                  of this source.
++                type: boolean
++              timeout:
++                default: 60s
++                description: The timeout for remote Git operations like cloning, defaults
++                  to 60s.
++                type: string
++              url:
++                description: The repository URL, can be a HTTP/S or SSH address.
++                pattern: ^(http|https|ssh)://.*$
++                type: string
++              verify:
++                description: Verify OpenPGP signature for the Git commit HEAD points
++                  to.
++                properties:
++                  mode:
++                    description: Mode describes what git object should be verified,
++                      currently ('head').
++                    enum:
++                    - head
++                    type: string
++                  secretRef:
++                    description: The secret name containing the public keys of all
++                      trusted Git authors.
++                    properties:
++                      name:
++                        description: Name of the referent.
++                        type: string
++                    required:
++                    - name
++                    type: object
++                required:
++                - mode
++                type: object
++            required:
++            - interval
++            - url
++            type: object
++          status:
++            default:
++              observedGeneration: -1
++            description: GitRepositoryStatus defines the observed state of a Git repository.
++            properties:
++              artifact:
++                description: Artifact represents the output of the last successful
++                  repository sync.
++                properties:
++                  checksum:
++                    description: Checksum is the SHA256 checksum of the artifact.
++                    type: string
++                  lastUpdateTime:
++                    description: LastUpdateTime is the timestamp corresponding to
++                      the last update of this artifact.
++                    format: date-time
++                    type: string
++                  path:
++                    description: Path is the relative file path of this artifact.
++                    type: string
++                  revision:
++                    description: Revision is a human readable identifier traceable
++                      in the origin source system. It can be a Git commit SHA, Git
++                      tag, a Helm index timestamp, a Helm chart version, etc.
++                    type: string
++                  url:
++                    description: URL is the HTTP address of this artifact.
++                    type: string
++                required:
++                - path
++                - url
++                type: object
++              conditions:
++                description: Conditions holds the conditions for the GitRepository.
++                items:
++                  description: "Condition contains details for one aspect of the current
++                    state of this API Resource. --- This struct is intended for direct
++                    use as an array at the field path .status.conditions.  For example,
++                    \n type FooStatus struct{ // Represents the observations of a
++                    foo's current state. // Known .status.conditions.type are: \"Available\",
++                    \"Progressing\", and \"Degraded\" // +patchMergeKey=type // +patchStrategy=merge
++                    // +listType=map // +listMapKey=type Conditions []metav1.Condition
++                    `json:\"conditions,omitempty\" patchStrategy:\"merge\" patchMergeKey:\"type\"
++                    protobuf:\"bytes,1,rep,name=conditions\"` \n // other fields }"
++                  properties:
++                    lastTransitionTime:
++                      description: lastTransitionTime is the last time the condition
++                        transitioned from one status to another. This should be when
++                        the underlying condition changed.  If that is not known, then
++                        using the time when the API field changed is acceptable.
++                      format: date-time
++                      type: string
++                    message:
++                      description: message is a human readable message indicating
++                        details about the transition. This may be an empty string.
++                      maxLength: 32768
++                      type: string
++                    observedGeneration:
++                      description: observedGeneration represents the .metadata.generation
++                        that the condition was set based upon. For instance, if .metadata.generation
++                        is currently 12, but the .status.conditions[x].observedGeneration
++                        is 9, the condition is out of date with respect to the current
++                        state of the instance.
++                      format: int64
++                      minimum: 0
++                      type: integer
++                    reason:
++                      description: reason contains a programmatic identifier indicating
++                        the reason for the condition's last transition. Producers
++                        of specific condition types may define expected values and
++                        meanings for this field, and whether the values are considered
++                        a guaranteed API. The value should be a CamelCase string.
++                        This field may not be empty.
++                      maxLength: 1024
++                      minLength: 1
++                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
++                      type: string
++                    status:
++                      description: status of the condition, one of True, False, Unknown.
++                      enum:
++                      - "True"
++                      - "False"
++                      - Unknown
++                      type: string
++                    type:
++                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
++                        --- Many .condition.type values are consistent across resources
++                        like Available, but because arbitrary conditions can be useful
++                        (see .node.status.conditions), the ability to deconflict is
++                        important. The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
++                      maxLength: 316
++                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
++                      type: string
++                  required:
++                  - lastTransitionTime
++                  - message
++                  - reason
++                  - status
++                  - type
++                  type: object
++                type: array
++              includedArtifacts:
++                description: IncludedArtifacts represents the included artifacts from
++                  the last successful repository sync.
++                items:
++                  description: Artifact represents the output of a source synchronisation.
++                  properties:
++                    checksum:
++                      description: Checksum is the SHA256 checksum of the artifact.
++                      type: string
++                    lastUpdateTime:
++                      description: LastUpdateTime is the timestamp corresponding to
++                        the last update of this artifact.
++                      format: date-time
++                      type: string
++                    path:
++                      description: Path is the relative file path of this artifact.
++                      type: string
++                    revision:
++                      description: Revision is a human readable identifier traceable
++                        in the origin source system. It can be a Git commit SHA, Git
++                        tag, a Helm index timestamp, a Helm chart version, etc.
++                      type: string
++                    url:
++                      description: URL is the HTTP address of this artifact.
++                      type: string
++                  required:
++                  - path
++                  - url
++                  type: object
++                type: array
++              lastHandledReconcileAt:
++                description: LastHandledReconcileAt holds the value of the most recent
++                  reconcile request value, so a change of the annotation value can
++                  be detected.
++                type: string
++              observedGeneration:
++                description: ObservedGeneration is the last observed generation.
++                format: int64
++                type: integer
++              url:
++                description: URL is the download link for the artifact output of the
++                  last repository sync.
++                type: string
++            type: object
++        type: object
++    served: true
++    storage: false
++    subresources:
++      status: {}
++  - additionalPrinterColumns:
++    - jsonPath: .spec.url
++      name: URL
++      type: string
++    - jsonPath: .metadata.creationTimestamp
++      name: Age
++      type: date
++    - jsonPath: .status.conditions[?(@.type=="Ready")].status
++      name: Ready
++      type: string
++    - jsonPath: .status.conditions[?(@.type=="Ready")].message
++      name: Status
++      type: string
++    deprecated: true
++    deprecationWarning: v1beta2 GitRepository is deprecated, upgrade to v1
++    name: v1beta2
++    schema:
++      openAPIV3Schema:
++        description: GitRepository is the Schema for the gitrepositories API.
++        properties:
++          apiVersion:
++            description: 'APIVersion defines the versioned schema of this representation
++              of an object. Servers should convert recognized schemas to the latest
++              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
++            type: string
++          kind:
++            description: 'Kind is a string value representing the REST resource this
++              object represents. Servers may infer this from the endpoint the client
++              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
++            type: string
++          metadata:
++            type: object
++          spec:
++            description: GitRepositorySpec specifies the required configuration to
++              produce an Artifact for a Git repository.
++            properties:
++              accessFrom:
++                description: 'AccessFrom specifies an Access Control List for allowing
++                  cross-namespace references to this object. NOTE: Not implemented,
++                  provisional as of https://github.com/fluxcd/flux2/pull/2092'
++                properties:
++                  namespaceSelectors:
++                    description: NamespaceSelectors is the list of namespace selectors
++                      to which this ACL applies. Items in this list are evaluated
++                      using a logical OR operation.
++                    items:
++                      description: NamespaceSelector selects the namespaces to which
++                        this ACL applies. An empty map of MatchLabels matches all
++                        namespaces in a cluster.
++                      properties:
++                        matchLabels:
++                          additionalProperties:
++                            type: string
++                          description: MatchLabels is a map of {key,value} pairs.
++                            A single {key,value} in the matchLabels map is equivalent
++                            to an element of matchExpressions, whose key field is
++                            "key", the operator is "In", and the values array contains
++                            only "value". The requirements are ANDed.
++                          type: object
++                      type: object
++                    type: array
++                required:
++                - namespaceSelectors
++                type: object
++              gitImplementation:
++                default: go-git
++                description: 'GitImplementation specifies which Git client library
++                  implementation to use. Defaults to ''go-git'', valid values are
++                  (''go-git'', ''libgit2''). Deprecated: gitImplementation is deprecated
++                  now that ''go-git'' is the only supported implementation.'
++                enum:
++                - go-git
++                - libgit2
++                type: string
++              ignore:
++                description: Ignore overrides the set of excluded patterns in the
++                  .sourceignore format (which is the same as .gitignore). If not provided,
++                  a default will be used, consult the documentation for your version
++                  to find out what those are.
++                type: string
++              include:
++                description: Include specifies a list of GitRepository resources which
++                  Artifacts should be included in the Artifact produced for this GitRepository.
++                items:
++                  description: GitRepositoryInclude specifies a local reference to
++                    a GitRepository which Artifact (sub-)contents must be included,
++                    and where they should be placed.
++                  properties:
++                    fromPath:
++                      description: FromPath specifies the path to copy contents from,
++                        defaults to the root of the Artifact.
++                      type: string
++                    repository:
++                      description: GitRepositoryRef specifies the GitRepository which
++                        Artifact contents must be included.
++                      properties:
++                        name:
++                          description: Name of the referent.
++                          type: string
++                      required:
++                      - name
++                      type: object
++                    toPath:
++                      description: ToPath specifies the path to copy contents to,
++                        defaults to the name of the GitRepositoryRef.
++                      type: string
++                  required:
++                  - repository
++                  type: object
++                type: array
++              interval:
++                description: Interval at which to check the GitRepository for updates.
++                pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
++                type: string
++              recurseSubmodules:
++                description: RecurseSubmodules enables the initialization of all submodules
++                  within the GitRepository as cloned from the URL, using their default
++                  settings.
++                type: boolean
++              ref:
++                description: Reference specifies the Git reference to resolve and
++                  monitor for changes, defaults to the 'master' branch.
++                properties:
++                  branch:
++                    description: Branch to check out, defaults to 'master' if no other
++                      field is defined.
++                    type: string
++                  commit:
++                    description: "Commit SHA to check out, takes precedence over all
++                      reference fields. \n This can be combined with Branch to shallow
++                      clone the branch, in which the commit is expected to exist."
++                    type: string
++                  name:
++                    description: "Name of the reference to check out; takes precedence
++                      over Branch, Tag and SemVer. \n It must be a valid Git reference:
++                      https://git-scm.com/docs/git-check-ref-format#_description Examples:
++                      \"refs/heads/main\", \"refs/tags/v0.1.0\", \"refs/pull/420/head\",
++                      \"refs/merge-requests/1/head\""
++                    type: string
++                  semver:
++                    description: SemVer tag expression to check out, takes precedence
++                      over Tag.
++                    type: string
++                  tag:
++                    description: Tag to check out, takes precedence over Branch.
++                    type: string
++                type: object
++              secretRef:
++                description: SecretRef specifies the Secret containing authentication
++                  credentials for the GitRepository. For HTTPS repositories the Secret
++                  must contain 'username' and 'password' fields for basic auth or
++                  'bearerToken' field for token auth. For SSH repositories the Secret
++                  must contain 'identity' and 'known_hosts' fields.
++                properties:
++                  name:
++                    description: Name of the referent.
++                    type: string
++                required:
++                - name
++                type: object
++              suspend:
++                description: Suspend tells the controller to suspend the reconciliation
++                  of this GitRepository.
++                type: boolean
++              timeout:
++                default: 60s
++                description: Timeout for Git operations like cloning, defaults to
++                  60s.
++                pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m))+$
++                type: string
++              url:
++                description: URL specifies the Git repository URL, it can be an HTTP/S
++                  or SSH address.
++                pattern: ^(http|https|ssh)://.*$
++                type: string
++              verify:
++                description: Verification specifies the configuration to verify the
++                  Git commit signature(s).
++                properties:
++                  mode:
++                    description: Mode specifies what Git object should be verified,
++                      currently ('head').
++                    enum:
++                    - head
++                    type: string
++                  secretRef:
++                    description: SecretRef specifies the Secret containing the public
++                      keys of trusted Git authors.
++                    properties:
++                      name:
++                        description: Name of the referent.
++                        type: string
++                    required:
++                    - name
++                    type: object
++                required:
++                - mode
++                - secretRef
++                type: object
++            required:
++            - interval
++            - url
++            type: object
++          status:
++            default:
++              observedGeneration: -1
++            description: GitRepositoryStatus records the observed state of a Git repository.
++            properties:
++              artifact:
++                description: Artifact represents the last successful GitRepository
++                  reconciliation.
++                properties:
++                  digest:
++                    description: Digest is the digest of the file in the form of '<algorithm>:<checksum>'.
++                    pattern: ^[a-z0-9]+(?:[.+_-][a-z0-9]+)*:[a-zA-Z0-9=_-]+$
++                    type: string
++                  lastUpdateTime:
++                    description: LastUpdateTime is the timestamp corresponding to
++                      the last update of the Artifact.
++                    format: date-time
++                    type: string
++                  metadata:
++                    additionalProperties:
++                      type: string
++                    description: Metadata holds upstream information such as OCI annotations.
++                    type: object
++                  path:
++                    description: Path is the relative file path of the Artifact. It
++                      can be used to locate the file in the root of the Artifact storage
++                      on the local file system of the controller managing the Source.
++                    type: string
++                  revision:
++                    description: Revision is a human-readable identifier traceable
++                      in the origin source system. It can be a Git commit SHA, Git
++                      tag, a Helm chart version, etc.
++                    type: string
++                  size:
++                    description: Size is the number of bytes in the file.
++                    format: int64
++                    type: integer
++                  url:
++                    description: URL is the HTTP address of the Artifact as exposed
++                      by the controller managing the Source. It can be used to retrieve
++                      the Artifact for consumption, e.g. by another controller applying
++                      the Artifact contents.
++                    type: string
++                required:
++                - lastUpdateTime
++                - path
++                - revision
++                - url
++                type: object
++              conditions:
++                description: Conditions holds the conditions for the GitRepository.
++                items:
++                  description: "Condition contains details for one aspect of the current
++                    state of this API Resource. --- This struct is intended for direct
++                    use as an array at the field path .status.conditions.  For example,
++                    \n type FooStatus struct{ // Represents the observations of a
++                    foo's current state. // Known .status.conditions.type are: \"Available\",
++                    \"Progressing\", and \"Degraded\" // +patchMergeKey=type // +patchStrategy=merge
++                    // +listType=map // +listMapKey=type Conditions []metav1.Condition
++                    `json:\"conditions,omitempty\" patchStrategy:\"merge\" patchMergeKey:\"type\"
++                    protobuf:\"bytes,1,rep,name=conditions\"` \n // other fields }"
++                  properties:
++                    lastTransitionTime:
++                      description: lastTransitionTime is the last time the condition
++                        transitioned from one status to another. This should be when
++                        the underlying condition changed.  If that is not known, then
++                        using the time when the API field changed is acceptable.
++                      format: date-time
++                      type: string
++                    message:
++                      description: message is a human readable message indicating
++                        details about the transition. This may be an empty string.
++                      maxLength: 32768
++                      type: string
++                    observedGeneration:
++                      description: observedGeneration represents the .metadata.generation
++                        that the condition was set based upon. For instance, if .metadata.generation
++                        is currently 12, but the .status.conditions[x].observedGeneration
++                        is 9, the condition is out of date with respect to the current
++                        state of the instance.
++                      format: int64
++                      minimum: 0
++                      type: integer
++                    reason:
++                      description: reason contains a programmatic identifier indicating
++                        the reason for the condition's last transition. Producers
++                        of specific condition types may define expected values and
++                        meanings for this field, and whether the values are considered
++                        a guaranteed API. The value should be a CamelCase string.
++                        This field may not be empty.
++                      maxLength: 1024
++                      minLength: 1
++                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
++                      type: string
++                    status:
++                      description: status of the condition, one of True, False, Unknown.
++                      enum:
++                      - "True"
++                      - "False"
++                      - Unknown
++                      type: string
++                    type:
++                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
++                        --- Many .condition.type values are consistent across resources
++                        like Available, but because arbitrary conditions can be useful
++                        (see .node.status.conditions), the ability to deconflict is
++                        important. The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
++                      maxLength: 316
++                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
++                      type: string
++                  required:
++                  - lastTransitionTime
++                  - message
++                  - reason
++                  - status
++                  - type
++                  type: object
++                type: array
++              contentConfigChecksum:
++                description: "ContentConfigChecksum is a checksum of all the configurations
++                  related to the content of the source artifact: - .spec.ignore -
++                  .spec.recurseSubmodules - .spec.included and the checksum of the
++                  included artifacts observed in .status.observedGeneration version
++                  of the object. This can be used to determine if the content of the
++                  included repository has changed. It has the format of `<algo>:<checksum>`,
++                  for example: `sha256:<checksum>`. \n Deprecated: Replaced with explicit
++                  fields for observed artifact content config in the status."
++                type: string
++              includedArtifacts:
++                description: IncludedArtifacts contains a list of the last successfully
++                  included Artifacts as instructed by GitRepositorySpec.Include.
++                items:
++                  description: Artifact represents the output of a Source reconciliation.
++                  properties:
++                    digest:
++                      description: Digest is the digest of the file in the form of
++                        '<algorithm>:<checksum>'.
++                      pattern: ^[a-z0-9]+(?:[.+_-][a-z0-9]+)*:[a-zA-Z0-9=_-]+$
++                      type: string
++                    lastUpdateTime:
++                      description: LastUpdateTime is the timestamp corresponding to
++                        the last update of the Artifact.
++                      format: date-time
++                      type: string
++                    metadata:
++                      additionalProperties:
++                        type: string
++                      description: Metadata holds upstream information such as OCI
++                        annotations.
++                      type: object
++                    path:
++                      description: Path is the relative file path of the Artifact.
++                        It can be used to locate the file in the root of the Artifact
++                        storage on the local file system of the controller managing
++                        the Source.
++                      type: string
++                    revision:
++                      description: Revision is a human-readable identifier traceable
++                        in the origin source system. It can be a Git commit SHA, Git
++                        tag, a Helm chart version, etc.
++                      type: string
++                    size:
++                      description: Size is the number of bytes in the file.
++                      format: int64
++                      type: integer
++                    url:
++                      description: URL is the HTTP address of the Artifact as exposed
++                        by the controller managing the Source. It can be used to retrieve
++                        the Artifact for consumption, e.g. by another controller applying
++                        the Artifact contents.
++                      type: string
++                  required:
++                  - lastUpdateTime
++                  - path
++                  - revision
++                  - url
++                  type: object
++                type: array
++              lastHandledReconcileAt:
++                description: LastHandledReconcileAt holds the value of the most recent
++                  reconcile request value, so a change of the annotation value can
++                  be detected.
++                type: string
++              observedGeneration:
++                description: ObservedGeneration is the last observed generation of
++                  the GitRepository object.
++                format: int64
++                type: integer
++              observedIgnore:
++                description: ObservedIgnore is the observed exclusion patterns used
++                  for constructing the source artifact.
++                type: string
++              observedInclude:
++                description: ObservedInclude is the observed list of GitRepository
++                  resources used to to produce the current Artifact.
++                items:
++                  description: GitRepositoryInclude specifies a local reference to
++                    a GitRepository which Artifact (sub-)contents must be included,
++                    and where they should be placed.
++                  properties:
++                    fromPath:
++                      description: FromPath specifies the path to copy contents from,
++                        defaults to the root of the Artifact.
++                      type: string
++                    repository:
++                      description: GitRepositoryRef specifies the GitRepository which
++                        Artifact contents must be included.
++                      properties:
++                        name:
++                          description: Name of the referent.
++                          type: string
++                      required:
++                      - name
++                      type: object
++                    toPath:
++                      description: ToPath specifies the path to copy contents to,
++                        defaults to the name of the GitRepositoryRef.
++                      type: string
++                  required:
++                  - repository
++                  type: object
++                type: array
++              observedRecurseSubmodules:
++                description: ObservedRecurseSubmodules is the observed resource submodules
++                  configuration used to produce the current Artifact.
++                type: boolean
++              url:
++                description: URL is the dynamic fetch link for the latest Artifact.
++                  It is provided on a "best effort" basis, and using the precise GitRepositoryStatus.Artifact
++                  data is recommended.
++                type: string
++            type: object
++        type: object
++    served: true
++    storage: false
++    subresources:
++      status: {}
+\ No newline at end of file
+diff --git a/test/integration/apiserver/fixtures-117260/etcd.json b/test/integration/apiserver/fixtures-117260/etcd.json
+new file mode 100644
+--- /dev/null
++++ b/test/integration/apiserver/fixtures-117260/etcd.json
+@@ -0,0 +1,118 @@
++{
++  "apiVersion": "source.toolkit.fluxcd.io/v1",
++  "kind": "GitRepository",
++  "metadata": {
++    "creationTimestamp": "2023-04-13T13:12:31Z",
++    "finalizers": [
++      "finalizers.fluxcd.io"
++    ],
++    "generation": 1,
++    "labels": {
++      "kustomize.toolkit.fluxcd.io/name": "infra-config",
++      "kustomize.toolkit.fluxcd.io/namespace": "flux-system"
++    },
++    "managedFields": [
++      {
++        "apiVersion": "source.toolkit.fluxcd.io/v1",
++        "fieldsType": "FieldsV1",
++        "fieldsV1": {
++          "f:metadata": {
++            "f:labels": {
++              "f:kustomize.toolkit.fluxcd.io/name": {},
++              "f:kustomize.toolkit.fluxcd.io/namespace": {}
++            }
++          },
++          "f:spec": {
++            "f:interval": {},
++            "f:ref": {
++              "f:branch": {}
++            },
++            "f:url": {}
++          }
++        },
++        "manager": "kustomize-controller",
++        "operation": "Apply",
++        "time": "2023-04-13T13:12:31Z"
++      },
++      {
++        "apiVersion": "source.toolkit.fluxcd.io/v1",
++        "fieldsType": "FieldsV1",
++        "fieldsV1": {
++          "f:metadata": {
++            "f:finalizers": {
++              ".": {},
++              "v:\"finalizers.fluxcd.io\"": {}
++            }
++          }
++        },
++        "manager": "source-controller",
++        "operation": "Update",
++        "time": "2023-04-13T13:12:31Z"
++      },
++      {
++        "apiVersion": "source.toolkit.fluxcd.io/v1",
++        "fieldsType": "FieldsV1",
++        "fieldsV1": {
++          "f:status": {
++            "f:artifact": {
++              ".": {},
++              "f:digest": {},
++              "f:lastUpdateTime": {},
++              "f:path": {},
++              "f:revision": {},
++              "f:size": {},
++              "f:url": {}
++            },
++            "f:conditions": {},
++            "f:observedGeneration": {}
++          }
++        },
++        "manager": "source-controller",
++        "operation": "Update",
++        "subresource": "status",
++        "time": "2023-04-13T13:12:33Z"
++      }
++    ],
++    "name": "flux-monitoring",
++    "namespace": "flux-system",
++    "resourceVersion": "2495",
++    "uid": "98868147-370c-42e5-a679-0416557f6913"
++  },
++  "spec": {
++    "interval": "24h",
++    "ref": {
++      "branch": "main"
++    },
++    "timeout": "60s",
++    "url": "https://github.com/fluxcd/flux2"
++  },
++  "status": {
++    "artifact": {
++      "digest": "sha256:070a94239bfcbd12df6916b561a37dfc4877501b47b8ab917747e6792305214c",
++      "lastUpdateTime": "2023-04-13T13:12:33Z",
++      "path": "gitrepository/flux-system/flux-monitoring/cb8387cba6c58a796efdf8dafefb84e0ad5ec572.tar.gz",
++      "revision": "main@sha1:cb8387cba6c58a796efdf8dafefb84e0ad5ec572",
++      "size": 395809,
++      "url": "http://source-controller.flux-system.svc.cluster.local./gitrepository/flux-system/flux-monitoring/cb8387cba6c58a796efdf8dafefb84e0ad5ec572.tar.gz"
++    },
++    "conditions": [
++      {
++        "lastTransitionTime": "2023-04-13T13:12:33Z",
++        "message": "stored artifact for revision 'main@sha1:cb8387cba6c58a796efdf8dafefb84e0ad5ec572'",
++        "observedGeneration": 1,
++        "reason": "Succeeded",
++        "status": "True",
++        "type": "Ready"
++      },
++      {
++        "lastTransitionTime": "2023-04-13T13:12:33Z",
++        "message": "stored artifact for revision 'main@sha1:cb8387cba6c58a796efdf8dafefb84e0ad5ec572'",
++        "observedGeneration": 1,
++        "reason": "Succeeded",
++        "status": "True",
++        "type": "ArtifactInStorage"
++      }
++    ],
++    "observedGeneration": 1
++  }
++}
+\ No newline at end of file
+diff --git a/test/integration/apiserver/issue-117260_test.go b/test/integration/apiserver/issue-117260_test.go
+new file mode 100644
+--- /dev/null
++++ b/test/integration/apiserver/issue-117260_test.go
+@@ -0,0 +1,128 @@
++/*
++Copyright 2023 The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package apiserver
++
++import (
++	"context"
++	"embed"
++	"path"
++	"testing"
++	"time"
++
++	"github.com/stretchr/testify/require"
++
++	corev1 "k8s.io/api/core/v1"
++	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
++	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
++	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
++	"k8s.io/apimachinery/pkg/runtime/schema"
++	"k8s.io/apimachinery/pkg/util/wait"
++	"k8s.io/client-go/dynamic"
++	"k8s.io/client-go/kubernetes"
++	"sigs.k8s.io/yaml"
++
++	kubeapiservertesting "k8s.io/kubernetes/cmd/kube-apiserver/app/testing"
++	"k8s.io/kubernetes/test/integration/framework"
++)
++
++//go:embed fixtures-117260/*
++var pr117260Fixtures embed.FS
++
++// TestPR117260 is a reproducer for https://github.com/kubernetes/kubernetes/issues/117260
++func TestPR117260(t *testing.T) {
++	ctx, cancelFn := context.WithCancel(context.Background())
++	t.Cleanup(cancelFn)
++
++	server, err := kubeapiservertesting.StartTestServer(t, kubeapiservertesting.NewDefaultTestServerOptions(), nil, framework.SharedEtcd())
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer server.TearDownFn()
++
++	t.Log("Creating flux-system namespace")
++	client, err := kubernetes.NewForConfig(server.ClientConfig)
++	require.NoError(t, err)
++	_, err = client.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "flux-system"}}, metav1.CreateOptions{})
++	require.NoError(t, err)
++
++	t.Log("Creating CRD")
++	bs, err := pr117260Fixtures.ReadFile("fixtures-117260/crd.yaml")
++	require.NoError(t, err)
++
++	crd := &apiextensionsv1.CustomResourceDefinition{}
++	err = yaml.Unmarshal(bs, crd)
++	require.NoError(t, err)
++
++	var apiExtensionClient *apiextensionsclient.Clientset
++	apiExtensionClient, err = apiextensionsclient.NewForConfig(server.ClientConfig)
++	require.NoError(t, err)
++	_, err = apiExtensionClient.ApiextensionsV1().CustomResourceDefinitions().Create(ctx, crd, metav1.CreateOptions{})
++	require.NoError(t, err)
++
++	dynClient, err := dynamic.NewForConfig(server.ClientConfig)
++	require.NoError(t, err)
++	v1 := schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "gitrepositories"}
++	err = wait.PollUntilContextTimeout(ctx, time.Second, wait.ForeverTestTimeout, true, func(ctx context.Context) (done bool, err error) {
++		obj := &unstructured.Unstructured{
++			Object: map[string]interface{}{
++				"apiVersion": "source.toolkit.fluxcd.io/v1",
++				"kind":       "GitRepository",
++				"metadata": map[string]interface{}{
++					"name":      "seed",
++					"namespace": "flux-system",
++				},
++			},
++		}
++		_, err = dynClient.Resource(v1).Namespace("flux-system").Apply(ctx, "seed", obj, metav1.ApplyOptions{FieldManager: "integation-test"})
++		if err != nil {
++			t.Logf("Waiting for CRD to be ready: %v", err)
++			return false, nil
++		}
++		return true, nil
++	})
++	require.NoError(t, err)
++
++	t.Log("Writing CR directly to etcd")
++	bs, err = pr117260Fixtures.ReadFile("fixtures-117260/etcd.json")
++	require.NoError(t, err)
++
++	key := path.Join("/", server.EtcdStoragePrefix, "source.toolkit.fluxcd.io", "gitrepositories", "flux-system", "flux-monitoring")
++	_, err = server.EtcdClient.Put(ctx, key, string(bs))
++	require.NoError(t, err)
++
++	var obj *unstructured.Unstructured
++	obj, err = dynClient.Resource(v1).Namespace("flux-system").Get(ctx, "flux-monitoring", metav1.GetOptions{})
++	require.NoError(t, err)
++	t.Logf("Found CR %s/%s through the apiserver as v1beta1", obj.GetNamespace(), obj.GetName())
++
++	t.Log("Applying same CR")
++	v1beta2 := schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1beta2", Resource: "gitrepositories"}
++	bs, err = pr117260Fixtures.ReadFile("fixtures-117260/apply.yaml")
++	require.NoError(t, err)
++	patch := &unstructured.Unstructured{}
++	err = yaml.Unmarshal(bs, &patch.Object)
++	require.NoError(t, err)
++	for i := 0; i < 100; i++ {
++		_, err = dynClient.Resource(v1beta2).Namespace("flux-system").Apply(ctx, "flux-monitoring", patch, metav1.ApplyOptions{
++			DryRun:       []string{"All"},
++			Force:        false,
++			FieldManager: "kustomize-controller",
++		})
++		require.NoError(t, err)
++	}
++}

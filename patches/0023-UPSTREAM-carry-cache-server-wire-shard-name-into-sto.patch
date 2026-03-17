@@ -1,0 +1,313 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
+Date: Wed, 27 Sep 2023 13:31:40 +0200
+Subject: [PATCH] UPSTREAM: <carry>: cache-server: wire shard name into storage
+
+Co-authored-by: Marvin Beckers <marvin@kubermatic.com>
+Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
+Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../pkg/registry/customresource/strategy.go   |  4 +-
+ .../endpoints/request/context_shard_kcp.go    | 64 +++++++++++++++++++
+ .../pkg/registry/generic/registry/store.go    | 20 ++++++
+ .../apiserver/pkg/registry/rest/meta.go       | 13 +++-
+ .../apiserver/pkg/registry/rest/update.go     |  7 +-
+ .../apiserver/pkg/storage/etcd3/store_kcp.go  |  8 ++-
+ .../apiserver/pkg/storage/etcd3/watcher.go    | 11 +++-
+ 7 files changed, 119 insertions(+), 8 deletions(-)
+ create mode 100644 staging/src/k8s.io/apiserver/pkg/endpoints/request/context_shard_kcp.go
+
+diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/strategy.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/strategy.go
+--- a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/strategy.go
++++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/strategy.go
+@@ -156,7 +156,7 @@ func (a customResourceStrategy) PrepareForCreate(ctx context.Context, obj runtim
+ 	}
+ 
+ 	accessor, _ := meta.Accessor(obj)
+-	if _, found := accessor.GetAnnotations()[genericapirequest.AnnotationKey]; found {
++	if _, found := accessor.GetAnnotations()[genericapirequest.ShardAnnotationKey]; found {
+ 		// to avoid an additional UPDATE request (mismatch on the generation field) replicated objects have the generation field already set
+ 		return
+ 	}
+@@ -190,7 +190,7 @@ func (a customResourceStrategy) PrepareForUpdate(ctx context.Context, obj, old r
+ 	if !apiequality.Semantic.DeepEqual(newCopyContent, oldCopyContent) {
+ 		oldAccessor, _ := meta.Accessor(oldCustomResourceObject)
+ 		newAccessor, _ := meta.Accessor(newCustomResourceObject)
+-		if _, found := oldAccessor.GetAnnotations()[genericapirequest.AnnotationKey]; found {
++		if _, found := oldAccessor.GetAnnotations()[genericapirequest.ShardAnnotationKey]; found {
+ 			// the presence of the annotation indicates the object is from the cache server.
+ 			// since the objects from the cache should not be modified in any way, just return early.
+ 			return
+diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/request/context_shard_kcp.go b/staging/src/k8s.io/apiserver/pkg/endpoints/request/context_shard_kcp.go
+new file mode 100644
+--- /dev/null
++++ b/staging/src/k8s.io/apiserver/pkg/endpoints/request/context_shard_kcp.go
+@@ -0,0 +1,64 @@
++/*
++Copyright 2022 The KCP Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package request
++
++import (
++	"context"
++)
++
++type shardKey int
++
++const (
++	// shardKey is the context key for the request.
++	shardContextKey shardKey = iota
++
++	// ShardAnnotationKey is the name of the annotation key used to denote an object's shard name.
++	ShardAnnotationKey = "kcp.io/shard"
++)
++
++// Shard describes a shard
++type Shard string
++
++// Empty returns true if the name of the shard is empty.
++func (s Shard) Empty() bool {
++	return s == ""
++}
++
++// Wildcard checks if the given shard name matches wildcard.
++// If true the query applies to all shards.
++func (s Shard) Wildcard() bool {
++	return s == "*"
++}
++
++// String casts Shard to string type
++func (s Shard) String() string {
++	return string(s)
++}
++
++// WithShard returns a context that holds the given shard.
++func WithShard(parent context.Context, shard Shard) context.Context {
++	return context.WithValue(parent, shardContextKey, shard)
++}
++
++// ShardFrom returns the value of the shard key in the context, or an empty value if there is no shard key.
++func ShardFrom(ctx context.Context) Shard {
++	shard, ok := ctx.Value(shardContextKey).(Shard)
++	if !ok {
++		return ""
++	}
++	return shard
++}
+diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
+--- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
++++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
+@@ -268,11 +268,18 @@ const (
+ // to resource directories enforcing namespace rules.
+ func NoNamespaceKeyRootFunc(ctx context.Context, prefix string) string {
+ 	key := prefix
++	shard := genericapirequest.ShardFrom(ctx)
++	if shard.Wildcard() {
++		return key
++	}
+ 	cluster, err := genericapirequest.ValidClusterFrom(ctx)
+ 	if err != nil {
+ 		klog.Errorf("invalid context cluster value: %v", err)
+ 		return key
+ 	}
++	if !shard.Empty() {
++		key += "/" + shard.String()
++	}
+ 	if !cluster.Wildcard {
+ 		key += "/" + cluster.Name.String()
+ 	}
+@@ -522,6 +529,12 @@ func (e *Store) create(ctx context.Context, obj runtime.Object, createValidation
+ 	if err := rest.BeforeCreate(e.CreateStrategy, ctx, obj); err != nil {
+ 		return nil, err
+ 	}
++
++	if _, found := objectMeta.GetAnnotations()[genericapirequest.ShardAnnotationKey]; found {
++		// Remove the shard annotation so it is not persisted
++		delete(objectMeta.GetAnnotations(), genericapirequest.ShardAnnotationKey)
++	}
++
+ 	// at this point we have a fully formed object.  It is time to call the validators that the apiserver
+ 	// handling chain wants to enforce.
+ 	if createValidation != nil {
+@@ -1092,6 +1105,13 @@ func (e *Store) updateForGracefulDeletionAndFinalizers(ctx context.Context, name
+ 			if err != nil {
+ 				return nil, err
+ 			}
++
++			// the following annotation key indicates that the request is from the cache server
++			// in that case we've decided not to require finalization, the object will be deleted immediately
++			if _, hasShardAnnotation := existingAccessor.GetAnnotations()[genericapirequest.ShardAnnotationKey]; hasShardAnnotation {
++				return existing, nil
++			}
++
+ 			needsUpdate, newFinalizers := deletionFinalizersForGarbageCollection(ctx, e, existingAccessor, options)
+ 			if needsUpdate {
+ 				existingAccessor.SetFinalizers(newFinalizers)
+diff --git a/staging/src/k8s.io/apiserver/pkg/registry/rest/meta.go b/staging/src/k8s.io/apiserver/pkg/registry/rest/meta.go
+--- a/staging/src/k8s.io/apiserver/pkg/registry/rest/meta.go
++++ b/staging/src/k8s.io/apiserver/pkg/registry/rest/meta.go
+@@ -21,6 +21,7 @@ import (
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	"k8s.io/apimachinery/pkg/runtime/schema"
+ 	"k8s.io/apimachinery/pkg/util/uuid"
++	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+ )
+ 
+ // metav1Now returns metav1.Now(), but allows override for unit testing
+@@ -28,6 +29,10 @@ var metav1Now = metav1.Now
+ 
+ // WipeObjectMetaSystemFields erases fields that are managed by the system on ObjectMeta.
+ func WipeObjectMetaSystemFields(meta metav1.Object) {
++	if _, found := meta.GetAnnotations()[genericapirequest.ShardAnnotationKey]; found {
++		// Do not wipe system fields if we are storing a cached object
++		return
++	}
+ 	meta.SetCreationTimestamp(metav1.Time{})
+ 	meta.SetUID("")
+ 	meta.SetDeletionTimestamp(nil)
+@@ -37,7 +42,13 @@ func WipeObjectMetaSystemFields(meta metav1.Object) {
+ 
+ // FillObjectMetaSystemFields populates fields that are managed by the system on ObjectMeta.
+ func FillObjectMetaSystemFields(meta metav1.Object) {
+-	meta.SetCreationTimestamp(metav1Now())
++	if _, found := meta.GetAnnotations()[genericapirequest.ShardAnnotationKey]; found {
++		// In general the shard annotation is not attached to objects. Instead, it is assigned by the storage layer on the fly.
++		// To avoid an additional UPDATE request (mismatch on the creationTime and UID fields) replicated objects have those fields already set.
++		// Thus all we have to do is to simply return early.
++		return
++	}
++	meta.SetCreationTimestamp(metav1.Now())
+ 	meta.SetUID(uuid.NewUUID())
+ }
+ 
+diff --git a/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go b/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go
+--- a/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go
++++ b/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go
+@@ -123,7 +123,12 @@ func BeforeUpdate(strategy RESTUpdateStrategy, ctx context.Context, obj, old run
+ 	if err != nil {
+ 		return err
+ 	}
+-	objectMeta.SetGeneration(oldMeta.GetGeneration())
++	if len(oldMeta.GetAnnotations()[genericapirequest.ShardAnnotationKey]) == 0 || objectMeta.GetGeneration() == 0 {
++		// the absence of the annotation indicates the object is NOT from the cache server,
++		// if the new object doesn't have its generation set, just rewrite it from the old object
++		// otherwise  we are dealing with an object from the cache server that wants its generation to be updated
++		objectMeta.SetGeneration(oldMeta.GetGeneration())
++	}
+ 
+ 	strategy.PrepareForUpdate(ctx, obj, old)
+ 
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
+@@ -28,9 +28,10 @@ import (
+ 
+ // adjustClusterNameIfWildcard determines the logical cluster name. If this is not a cluster-wildcard list/watch request,
+ // the cluster name is returned unmodified. Otherwise, the cluster name is extracted from the key based on whether it is
++// - a shard-wildcard request: <prefix>/shardName/clusterName/<remainder>
+ // - CR partial metadata request: <prefix>/identity/clusterName/<remainder>
+ // - any other request: <prefix>/clusterName/<remainder>.
+-func adjustClusterNameIfWildcard(cluster *genericapirequest.Cluster, crdRequest bool, keyPrefix, key string) logicalcluster.Name {
++func adjustClusterNameIfWildcard(shard genericapirequest.Shard, cluster *genericapirequest.Cluster, crdRequest bool, keyPrefix, key string) logicalcluster.Name {
+ 	if !cluster.Wildcard {
+ 		return cluster.Name
+ 	}
+@@ -51,6 +52,9 @@ func adjustClusterNameIfWildcard(cluster *genericapirequest.Cluster, crdRequest
+ 		// expecting 2699f4d273d342adccdc8a32663408226ecf66de7d191113ed3d4dc9bccec2f2/root:org:ws/<remainder>
+ 		// OR customresources/root:org:ws/<remainder>
+ 		return extract(3, 1)
++	case shard.Wildcard():
++		// expecting shardName/clusterName/<remainder>
++		return extract(3, 1)
+ 	default:
+ 		// expecting root:org:ws/<remainder>
+ 		return extract(2, 0)
+@@ -101,7 +105,7 @@ func annotateDecodedObjectWith(obj interface{}, clusterName logicalcluster.Name,
+ 	}
+ 	annotations[logicalcluster.AnnotationKey] = clusterName.String()
+ 	if !shardName.Empty() {
+-		annotations[genericapirequest.AnnotationKey] = shardName.String()
++		annotations[genericapirequest.ShardAnnotationKey] = shardName.String()
+ 	}
+ 	s.SetAnnotations(annotations)
+ }
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
+@@ -97,7 +97,9 @@ type watchChan struct {
+ 	resultChan               chan watch.Event
+ 	getResourceSizeEstimator func() *resourceSizeEstimator
+ 
++	// kcp
+ 	cluster    *genericapirequest.Cluster
++	shard      genericapirequest.Shard
+ 	crdRequest bool
+ }
+ 
+@@ -113,6 +115,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	shard := genericapirequest.ShardFrom(ctx)
+ 
+ 	if opts.Recursive && !strings.HasSuffix(key, "/") {
+ 		return nil, fmt.Errorf(`recursive key needs to end with "/"`)
+@@ -124,7 +127,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	wc := w.createWatchChan(ctx, key, startWatchRV, cluster, opts.Recursive, opts.ProgressNotify, opts.Predicate, transformer)
++	wc := w.createWatchChan(ctx, key, startWatchRV, shard, cluster, opts.Recursive, opts.ProgressNotify, opts.Predicate, transformer)
+ 	go wc.run(isInitialEventsEndBookmarkRequired(opts), areInitialEventsRequired(rev, opts))
+ 
+ 	// For etcd watch we don't have an easy way to answer whether the watch
+@@ -137,7 +140,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
+ 	return wc, nil
+ }
+ 
+-func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, cluster *genericapirequest.Cluster, recursive, progressNotify bool, pred storage.SelectionPredicate, transformer value.Transformer) *watchChan {
++func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, shard genericapirequest.Shard, cluster *genericapirequest.Cluster, recursive, progressNotify bool, pred storage.SelectionPredicate, transformer value.Transformer) *watchChan {
+ 	wc := &watchChan{
+ 		watcher:                  w,
+ 		key:                      key,
+@@ -149,7 +152,9 @@ func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, cl
+ 		resultChan:               make(chan watch.Event, outgoingBufSize),
+ 		getResourceSizeEstimator: w.getResourceSizeEstimator,
+ 
++		// kcp
+ 		cluster:    cluster,
++		shard:      shard,
+ 		crdRequest: kcp.CustomResourceIndicatorFrom(ctx),
+ 	}
+ 	if pred.Empty() {
+@@ -729,6 +734,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+ 
+ 		// kcp: apply clusterName to the decoded object, as the name is not persisted in storage.
+ 		clusterName := adjustClusterNameIfWildcard(wc.shard, wc.cluster, wc.crdRequest, wc.key, e.key)
++		shardName := adjustShardNameIfWildcard(wc.shard, wc.key, e.key)
+ 		annotateDecodedObjectWith(curObj, clusterName, shardName)
+ 	}
+ 	// We need to decode prevValue, only if this is deletion event or
+@@ -750,6 +756,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+ 
+ 		// kcp: apply clusterName to the decoded object, as the name is not persisted in storage.
+ 		clusterName := adjustClusterNameIfWildcard(wc.shard, wc.cluster, wc.crdRequest, wc.key, e.key)
++		shardName := adjustShardNameIfWildcard(wc.shard, wc.key, e.key)
+ 		annotateDecodedObjectWith(oldObj, clusterName, shardName)
+ 	}
+ 	return curObj, oldObj, nil

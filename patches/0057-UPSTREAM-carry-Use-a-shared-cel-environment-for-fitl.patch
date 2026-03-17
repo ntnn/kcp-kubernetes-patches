@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Tue, 16 Dec 2025 14:55:50 +0100
+Subject: [PATCH] UPSTREAM: <carry>: Use a shared cel environment for
+ fitlerCompiler
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../apiserver/pkg/admission/plugin/webhook/generic/webhook.go | 3 +--
+ .../pkg/admission/plugin/webhook/generic/webhook_kcp.go       | 4 ++++
+ 2 files changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook.go
+--- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook.go
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook.go
+@@ -21,7 +21,6 @@ import (
+ 	"fmt"
+ 	"io"
+ 
+-	"k8s.io/apiserver/pkg/cel/environment"
+ 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+ 	"k8s.io/klog/v2"
+ 
+@@ -139,7 +138,7 @@ func NewWebhook(handler *admission.Handler, configFile io.Reader, sourceFactory
+ 		namespaceMatcher:   &namespace.Matcher{},
+ 		objectMatcher:      &object.Matcher{},
+ 		dispatcher:         dispatcherFactory(&cm),
+-		filterCompiler:     cel.NewConditionCompiler(environment.MustBaseEnvSet(environment.DefaultCompatibilityVersion())),
++		filterCompiler:     sharedFilterCompiler,
+ 	}, nil
+ }
+ 
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook_kcp.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook_kcp.go
+--- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook_kcp.go
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook_kcp.go
+@@ -1,6 +1,8 @@
+ package generic
+ 
+ import (
++	"k8s.io/apiserver/pkg/admission/plugin/cel"
++	"k8s.io/apiserver/pkg/cel/environment"
+ 	coreinformers "k8s.io/client-go/informers/core/v1"
+ )
+ 
+@@ -17,3 +19,5 @@ func (a *Webhook) SetReadyFuncFromKCP(namespaceInformer coreinformers.NamespaceI
+ 		return namespaceInformer.Informer().HasSynced() && a.hookSource.HasSynced()
+ 	})
+ }
++
++var sharedFilterCompiler = cel.NewConditionCompiler(environment.MustBaseEnvSet(environment.DefaultCompatibilityVersion()))

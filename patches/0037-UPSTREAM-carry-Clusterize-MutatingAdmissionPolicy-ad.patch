@@ -1,0 +1,84 @@
+From d13d40584817f5f42f42a94a603d782318d3b75e Mon Sep 17 00:00:00 2001
+From: Robert Vasek <rvasek01@gmail.com>
+Date: Thu, 23 Jan 2025 12:09:33 +0100
+Subject: [PATCH 37/60] UPSTREAM: <carry>: Clusterize MutatingAdmissionPolicy
+ admission plugin and policy plugin framework
+
+On-behalf-of: SAP robert.vasek@sap.com
+Signed-off-by: Robert Vasek <robert.vasek@clyso.com>
+---
+ .../pkg/admission/plugin/policy/mutating/accessor.go     | 9 +++++++++
+ .../pkg/admission/plugin/policy/mutating/plugin.go       | 7 +++++--
+ 2 files changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/accessor.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/accessor.go
+index ff342623a95..471223295e3 100644
+--- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/accessor.go
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/accessor.go
+@@ -17,6 +17,7 @@ limitations under the License.
+ package mutating
+ 
+ import (
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	v1 "k8s.io/api/admissionregistration/v1"
+ 	"k8s.io/api/admissionregistration/v1beta1"
+ 	"k8s.io/apimachinery/pkg/types"
+@@ -47,6 +48,10 @@ func (v *mutatingAdmissionPolicyAccessor) GetName() string {
+ 	return v.Name
+ }
+ 
++func (v *mutatingAdmissionPolicyAccessor) GetCluster() string {
++	return logicalcluster.From(v.Policy).String()
++}
++
+ func (v *mutatingAdmissionPolicyAccessor) GetParamKind() *v1.ParamKind {
+ 	pk := v.Spec.ParamKind
+ 	if pk == nil {
+@@ -86,6 +91,10 @@ func (v *mutatingAdmissionPolicyBindingAccessor) GetName() string {
+ 	return v.Name
+ }
+ 
++func (v *mutatingAdmissionPolicyBindingAccessor) GetCluster() string {
++	return logicalcluster.From(v.PolicyBinding).String()
++}
++
+ func (v *mutatingAdmissionPolicyBindingAccessor) GetPolicyName() types.NamespacedName {
+ 	return types.NamespacedName{
+ 		Namespace: "",
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/plugin.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/plugin.go
+index 20e4d2d0c47..7e366bca46e 100644
+--- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/plugin.go
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/plugin.go
+@@ -18,9 +18,11 @@ package mutating
+ 
+ import (
+ 	"context"
+-	celgo "github.com/google/cel-go/cel"
+ 	"io"
+ 
++	celgo "github.com/google/cel-go/cel"
++
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	"k8s.io/api/admissionregistration/v1beta1"
+ 	corev1 "k8s.io/api/core/v1"
+ 	"k8s.io/apimachinery/pkg/api/meta"
+@@ -94,7 +96,7 @@ func NewPlugin(_ io.Reader) *Plugin {
+ 	res := &Plugin{}
+ 	res.Plugin = generic.NewPlugin(
+ 		handler,
+-		func(f informers.SharedInformerFactory, client kubernetes.Interface, dynamicClient dynamic.Interface, restMapper meta.RESTMapper) generic.Source[PolicyHook] {
++		func(f informers.SharedInformerFactory, client kubernetes.Interface, dynamicClient dynamic.Interface, restMapper meta.RESTMapper, clusterName logicalcluster.Name) generic.Source[PolicyHook] {
+ 			return generic.NewPolicySource(
+ 				f.Admissionregistration().V1beta1().MutatingAdmissionPolicies().Informer(),
+ 				f.Admissionregistration().V1beta1().MutatingAdmissionPolicyBindings().Informer(),
+@@ -106,6 +108,7 @@ func NewPlugin(_ io.Reader) *Plugin {
+ 				f,
+ 				dynamicClient,
+ 				restMapper,
++				clusterName,
+ 			)
+ 		},
+ 		func(a authorizer.Authorizer, m *matching.Matcher, client kubernetes.Interface) generic.Dispatcher[PolicyHook] {
+-- 
+2.53.0
+

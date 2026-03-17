@@ -1,0 +1,38 @@
+From aa80808b6b7b49ba129d8727df05a3f0380b2df3 Mon Sep 17 00:00:00 2001
+From: Mangirdas Judeikis <mangirdas@judeikis.lt>
+Date: Thu, 14 Aug 2025 17:54:01 +0300
+Subject: [PATCH 41/60] UPSTREAM: <carry>: Drop merge and replace in
+ x-kubernetes-list/map-type
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../pkg/apiserver/schema/kubeopenapi.go                  | 9 ---------
+ 1 file changed, 9 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/schema/kubeopenapi.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/schema/kubeopenapi.go
+index 1ce06852922..045475e8896 100644
+--- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/schema/kubeopenapi.go
++++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/schema/kubeopenapi.go
+@@ -84,18 +84,9 @@ func (x *Extensions) toKubeOpenAPI(ret *spec.Schema) {
+ 	}
+ 	if x.XListType != nil {
+ 		ret.VendorExtensible.AddExtension("x-kubernetes-list-type", *x.XListType)
+-		if *x.XListType == "map" || *x.XListType == "set" {
+-			ret.VendorExtensible.AddExtension("x-kubernetes-patch-strategy", "merge")
+-		}
+-		if *x.XListType == "atomic" {
+-			ret.VendorExtensible.AddExtension("x-kubernetes-patch-strategy", "replace")
+-		}
+ 	}
+ 	if x.XMapType != nil {
+ 		ret.VendorExtensible.AddExtension("x-kubernetes-map-type", *x.XMapType)
+-		if *x.XMapType == "atomic" {
+-			ret.VendorExtensible.AddExtension("x-kubernetes-patch-strategy", "replace")
+-		}
+ 	}
+ }
+ 
+-- 
+2.53.0
+

@@ -1,34 +1,70 @@
 # kcp-kubernetes-patches
 
-Patch series for [kcp](https://github.com/kcp-dev/kcp) modifications to
-[kubernetes/kubernetes](https://github.com/kubernetes/kubernetes).
+Patch series for [kcp](https://github.com/kcp-dev/kcp) modifications to [kubernetes/kubernetes](https://github.com/kubernetes/kubernetes).
 
-The patches in `patches/` are maintained as `git format-patch` output and are
-applied with `git am`.
+The patches in `patches/` are maintained as `git format-patch` output and are applied with `git am`.
 
 ## Setup
 
-Clone this repository, then clone kubernetes and kcp inside it:
+Clone this repository, then run the setup script with the kube version
+to rebase onto:
 
 ```bash
 git clone https://github.com/kcp-dev/kcp-kubernetes-patches
 cd kcp-kubernetes-patches
-git clone https://github.com/kubernetes/kubernetes
-git clone https://github.com/kcp-dev/kcp
+./hack/setup.bash v1.36.0
 ```
 
-> [!NOTE]
-> kcp is not needed yet but a script could build a go.work with all
-> modules and then tests could be run from here to alleviate all the
-> headaches of rewriting the go.mods and vendoring etcpp.
+This will clone or update the repositories and ensure branches in both
+the kubernetes and the kcp clone.
 
-The `kubernetes/` and `kcp/` directories are gitignored.
+Note that the script is destructive in so far that it is _deleting_ the
+branch in kubernetes if it exists. This is useful to reset if the
+process went haywire. The branch in kcp is not touched after it has been
+created.
+
+The `kubernetes` and `kcp` directories are gitignored.
+
+> [!NOTE]
+> Using submodules instead of gitignoring the directories would also be
+> an option, however for the moment this approach is simpler and
+> sufficient.
+
+After that run build the `go.work` file:
+
+```bash
+./hack/build-gowork.bash
+```
+
+This builds a `go.work` based on the modules in both repositories.
+
+After the `go.work` is built set it in every terminal you use to work on
+the rebase, this instructs Go to use your local clones of kcp and
+kubernetes instead of anything from the gomodcache.
+
+```bash
+export GOWORK="$(realpath ./go.work)"
+```
+
+# Rebasing
+
+## "soft" forks
+
+First the soft forks must be updated. These are modules in the staging
+dir in the kcp repository. They contain files that were copied from
+upstream and altered.
+
+### apimachinery
+
+First the altere
 
 ## Applying patches to a new upstream release
 
+After the feature branch has been established start applying patches
+using the `git-am` tool:
+
 ```bash
 cd kubernetes
-git checkout -b kcp-<version> <tag>
 git am ../patches/*.patch
 ```
 
@@ -63,11 +99,6 @@ git format-patch <tag>..HEAD -o ../patches/
 ```
 
 Commit the updated patches in this repository.
-
-## Adding, removing, or reordering patches
-
-Make the changes on the kcp branch (add commits, reorder with interactive
-rebase, drop commits), then re-export as above.
 
 ## Patch conventions
 

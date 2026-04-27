@@ -6,13 +6,13 @@ cd "$(dirname $0)/.."
 
 
 build() {
-    grep '^go' ./kcp/go.mod
+    grep '^go' ./kubernetes/go.mod
 
     echo ''
 
     echo 'use ('
     find ./kcp -name go.mod | while read gomod; do
-        echo "	$gomod"
+    echo "	$(dirname $gomod)"
     done
     echo ')'
 
@@ -22,7 +22,7 @@ build() {
     echo 'replace ('
     find ./kubernetes -name go.mod | while read gomod; do
         local left=""
-        local right="$gomod"
+        local right="$(dirname $gomod)"
         case "$gomod" in
             (*/hack/*) continue;;
             (*/staging/*)

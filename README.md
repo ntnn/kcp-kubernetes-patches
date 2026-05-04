@@ -18,10 +18,12 @@ cd kcp-kubernetes-patches
 This will clone or update the repositories and ensure branches in both
 the kubernetes and the kcp clone.
 
-Note that the script is destructive in so far that it is _deleting_ the
-branch in kubernetes if it exists. This is useful to reset if the
-process went haywire. The branch in kcp is not touched after it has been
-created.
+The script is non-destructive, meaning it will checkout a new branch off
+of the base branch with every call, adding a number to the templated
+branch with every iteration.
+
+That means its always possible to start over without loosing previous
+work.
 
 The `kubernetes` and `kcp` directories are gitignored.
 

@@ -23,6 +23,26 @@ clone_kcp() {
     )
 }
 
+# checkout_increment recurses until the target branch does not
+# exist
+checkout_increment() {
+    local baseline="$1"
+    local branch_prefix="$2"
+    local increment="$3"
+
+    local branch="$branch_prefix"
+    if [[ "$increment" -gt 0 ]]; then
+        branch="$branch-$increment"
+    fi
+
+    if git rev-parse --verify "$branch" &>/dev/null; then
+        log "Branch '$branch' already exists, recursing"
+        checkout_increment "$baseline" "$branch_prefix" "$(( $increment + 1 ))"
+        return
+    fi
+    git checkout -b "$branch" "$baseline"
+}
+
 checkout_kube_baseline() {
     local kube_baseline="$1"
     if [[ -z "$kube_baseline" ]]; then
@@ -31,12 +51,11 @@ checkout_kube_baseline() {
 
     local branch="kcp-$kube_baseline"
 
-    log "Creating fresh kube branch '$branch'"
+    log "Creating fresh kube branch"
     (
         cd kubernetes
         git checkout master
-        git branch -D "$branch"
-        git checkout -b "$branch" "v$kube_baseline"
+        checkout_increment "v$kube_baseline" "$branch" 0
     )
 }
 
@@ -51,13 +70,8 @@ checkout_kcp_baseline() {
     log "Ensuring kcp branch '$branch'"
     (
         cd kcp
-        if git rev-parse --verify "$branch" &>/dev/null; then
-            log "kcp branch '$branch' exists, not truncating"
-            return
-        fi
         git checkout main
-        git branch -D "$branch"
-        git checkout -b "$branch" main
+        checkout_increment main "$branch" 0
     )
 }
 

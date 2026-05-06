@@ -3,6 +3,7 @@
 log() { echo ">>> $@"; }
 die() { log "$@"; exit 1; }
 cd "$(dirname $0)/.."
+source ".env"
 
 clone_kube() {
     [[ -d ./kubernetes ]] || git clone --origin kubernetes https://github.com/kubernetes/kubernetes
@@ -75,14 +76,18 @@ checkout_kcp_baseline() {
     )
 }
 
-main() {
-    local kube_baseline="$1"
-    kube_baseline="${kube_baseline/v/}"
-
+do_kube() {
     clone_kube
-    clone_kcp
-    checkout_kube_baseline "$kube_baseline"
-    checkout_kcp_baseline "$kube_baseline"
+    checkout_kube_baseline "$KUBE_TAG"
 }
 
-main "$@"
+do_kcp() {
+    clone_kcp
+    checkout_kcp_baseline "$KUBE_TAG"
+}
+
+case "$@" in
+    (kube*) do_kube;;
+    (kcp) do_kcp;;
+    (both) do_kube; do_kcp;;
+esac

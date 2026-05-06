@@ -3,6 +3,7 @@
 log() { echo ">>> $@"; }
 die() { log "$@"; exit 1; }
 cd "$(dirname $0)/.."
+source .env
 
 bump_gomod() {
     local target_dir="$1"
@@ -47,4 +48,6 @@ main() {
         k8s.io/client-go
 }
 
-main "$@"
+# TODO: don't think this is needed
+# unset GOWORK
+main "$KUBE_0_TAG"

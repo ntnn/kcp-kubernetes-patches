@@ -6,24 +6,25 @@ The patches in `patches/` are maintained as `git format-patch` output and are ap
 
 ## Setup
 
-Clone this repository, then run the setup script with the kube version
-to rebase onto:
+Clone this repository, then fill out the `.env` file run the setup script:
 
 ```bash
 git clone https://github.com/kcp-dev/kcp-kubernetes-patches
 cd kcp-kubernetes-patches
-./hack/setup.bash v1.36.0
+# edit .env
+./hack/setup.bash both
 ```
 
-This will clone or update the repositories and ensure branches in both
-the kubernetes and the kcp clone.
+This will clone or update the repositories and make feature branches in
+the kubernetes and the kcp clones.
 
 The script is non-destructive, meaning it will checkout a new branch off
 of the base branch with every call, adding a number to the templated
 branch with every iteration.
 
 That means its always possible to start over without loosing previous
-work.
+work. If only kube or only kcp needs to be reset run `./hack/setup.bash
+kube` and `./hack/setup.bash kcp` respectively.
 
 The `kubernetes` and `kcp` directories are gitignored.
 
@@ -38,41 +39,39 @@ After that run build the `go.work` file:
 ./hack/build-gowork.bash
 ```
 
-This builds a `go.work` based on the modules in both repositories.
-
-After the `go.work` is built set it in every terminal you use to work on
-the rebase, this instructs Go to use your local clones of kcp and
-kubernetes instead of anything from the gomodcache.
-
-Also set `KUBE_TAG` to the 0-based kube version to rebase onto, which will be
-used in commands going forward.
-
-```bash
-export PATCHES_DIR="$(realpath .)"
-export GOWORK="$(realpath ./go.work)"
-export KUBE_TAG="0.36.0-rc.1"
-
-export OLD_KUBE_1_TAG="1.35.1"
-export NEW_KUBE_1_TAG="1.36.0-rc.1"
-
-export OLD_KUBE_0_TAG="0.35.1"
-export NEW_KUBE_0_TAG="0.36.0-rc.1"
-```
+This builds a functioning `go.work` based on the modules in both repositories.
 
 # Rebasing
 
-## "soft" forks
+## "soft" forks in kcp
 
-First the soft forks must be updated. These are modules in the staging
-dir in the kcp repository. They are dependencies used both in kcp and
-the kubernetes fork.
+First the soft forks must be updated.  Some modules in the staging
+directories in the kcp repository contain modified copies of upstream
+files. These are dependencies used both in kcp and the kubernetes fork.
 
 Use the `bump-soft.bash` script to bump and commit the kube dependencies
-in the soft fork modules:
+in the modules containing soft forks.
 
 ```bash
-./hack/bump-soft.bash "$KUBE_TAG"
+./hack/bump-soft.bash
 ```
+
+You may run into messages like this:
+
+```text
+go: github.com/kcp-dev/client-go/kubernetes/fake imports
+	k8s.io/client-go/kubernetes/typed/scheduling/v1alpha1: module k8s.io/client-go@latest found (v0.36.0), but does not contain package k8s.io/client-go/kubernetes/typed/scheduling/v1alpha1
+go: github.com/kcp-dev/client-go/kubernetes/typed/autoscaling/v2beta1/fake imports
+	k8s.io/client-go/applyconfigurations/autoscaling/v2beta1: module k8s.io/client-go@latest found (v0.36.0), but does not contain package k8s.io/client-go/applyconfigurations/autoscaling/v2beta1
+go: github.com/kcp-dev/client-go/kubernetes/typed/autoscaling/v2beta2/fake imports
+	k8s.io/client-go/applyconfigurations/autoscaling/v2beta2: module k8s.io/client-go@latest found (v0.36.0), but does not contain package k8s.io/client-go/applyconfigurations/autoscaling/v2beta2
+go: github.com/kcp-dev/client-go/kubernetes/typed/scheduling/v1alpha1/fake imports
+	k8s.io/client-go/applyconfigurations/scheduling/v1alpha1: module k8s.io/client-go@latest found (v0.36.0), but does not contain package k8s.io/client-go/applyconfigurations/scheduling/v1alpha1
+```
+
+This happens when upstream removes APIs that are still references. These
+issues will be fixed when updating the generated code so they can be
+ignored at this step.
 
 <!-- TODO: let the script dynamically update k8s deps instead of hardcoding  -->
 
@@ -89,59 +88,39 @@ If hunks fail to apply they need to be reviewed and adjusted manually.
 #### reflector
 
 ```bash
-cd kubernetes
-git show v${OLD_KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/controller.go > /tmp/kcp-controller-base.go
-git show v${NEW_KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/controller.go > /tmp/kcp-controller-theirs.go
-popd
-cd kcp
-git merge-file staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/controller.go /tmp/kcp-controller-base.go /tmp/kcp-controller-theirs.go
-popd
+git -C kubernetes show v${OLD_KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/reflector.go \
+    > "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/reflector_base.go"
+git -C kubernetes show v${KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/reflector.go \
+    > "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/reflector_upstream.go"
+git -C kcp merge-file staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/reflector.go \
+    "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/reflector_base.go" \
+    "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/reflector_upstream.go"
 ```
 
 ```bash
-cd kubernetes
-git show v${OLD_KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/reflector.go > /tmp/kcp-reflector-base.go
-git show v${NEW_KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/reflector.go > /tmp/kcp-reflector-theirs.go
-popd
-cd kcp
-git merge-file staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/reflector.go /tmp/kcp-reflector-base.go /tmp/kcp-reflector-theirs.go
-popd
+git -C kubernetes show v${OLD_KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/controller.go \
+    > "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/controller_base.go"
+git -C kubernetes show v${KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/controller.go \
+    > "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/controller_upstream.go"
+git -C kcp merge-file staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/controller.go \
+    "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/controller_base.go" \
+    "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/controller_upstream.go"
 ```
 
-Review the changes and fix any merge conflicts.
+Review the changes and fix any merge conflicts. After deleting the `_base.go` and `_upstream.go` files `go vet` can be used to validate that the code would at least build.
 
 #### shared informer
 
 ```bash
-cd kubernetes
-git show v${OLD_KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/shared_informer.go > /tmp/kcp-shared-informer-base.go
-git show v${NEW_KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/shared_informer.go > /tmp/kcp-shared-informer-theirs.go
-popd
-cd kcp
-git merge-file staging/src/github.com/kcp-dev/apimachinery/third_party/informers/shared_informer.go /tmp/kcp-shared-informer-base.go /tmp/kcp-shared-informer-theirs.go
+git -C kubernetes show v${OLD_KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/shared_informer.go \
+    > "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/informers/shared_informer_base.go"
+git -C kubernetes show v${KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/shared_informer.go \
+    > "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/informers/shared_informer_upstream.go"
+git -C kcp merge-file staging/src/github.com/kcp-dev/apimachinery/third_party/informers/shared_informer.go \
+    "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/informers/shared_informer_base.go" \
+    "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/informers/shared_informer_upstream.go"
 ```
-
-Then review the file - it will likely contain the usual git merge conflict blocks.
-
-```bash
-cd ./kcp
-git apply --allow-empty "$PATCHES_DIR"/shared_informer.go.patch
-patch -F200 ./staging/src/github.com/kcp-dev/apimachinery/third_party/informers/shared_informer.go "$PATCHES_DIR"/shared_informer.go.patch
-popd
-```
-
-Manually review the `scoped_shared_informer.go` based on the changes in
-the patch file.
-
-#### finalizing
-
-After the soft forked files have been updated check and fix any errors:
-
-```bash
-cd kcp
-go vet ./staging/src/github.com/kcp-dev/apimachinery/...
-make lint WHAT=./staging/src/github.com/kcp-dev/apimachinery
-```
+Proceed as for reflector and check if `scoped_shared_informer.go` needs updates.
 
 ### code-generator
 
@@ -156,7 +135,7 @@ kubernetes repository:
 
 ```bash
 cd kubernetes
-git diff v${NEW_KUBE_1_TAG}...v${OLD_KUBE_1_TAG} -- staging/src/k8s.io/code-generator
+git diff v${KUBE_1_TAG}...v${OLD_KUBE_1_TAG} -- staging/src/k8s.io/code-generator
 popd
 ```
 
@@ -164,70 +143,125 @@ Once there are no changes required run the code generator and commit
 that as a standalone commit:
 
 ```bash
-make -C kcp codegen
+make -C kcp code-generator-codegen
 ```
-
-Run linting, tests and build, fix any issues:
-
-```bash
-make lint test build
-```
-
-Commit remaining changes, push and open a PR for review.
 
 ### client-go
 
-Run `hack/populate-copies.sh` — this will copy files originally copied from
-upstream over the local copies. Review the resulting changes and ensure
-upstream modifications are addressed:
+Run the code generator:
 
 ```bash
-hack/populate-copies.sh
+make -C kcp client-go-codegen
 ```
 
-Run code generation as a standalone commit:
+And commit.
+
+`client-go` has a helper script `populate-copies.sh` - cd into the
+staging directory and run it:
 
 ```bash
-make codegen
+cd kcp/staging/src/github.com/kcp-dev/client-go/
+./hack/populate-copies.sh
 ```
 
-Run linting, fix any issues:
+This will copy files originally copied from upstream over the local
+copies. Review the resulting changes and ensure upstream modifications
+are addressed. In most cases its just a matter of adding cluster
+awareness.
 
-```bash
-make lint
-```
+Commit the changes.
 
-Commit remaining changes, push and open a PR for review.
+## updating kubernetes fork
 
-## Applying patches to a new upstream release
+Now the patches are applied to the kubernetes fork.
 
-After the feature branch has been established start applying patches
-using the `git-am` tool:
+The patches are maintained in the `patches/` directory and are applied
+using `git-am`.
+
+> [!NOTE]
+> At any point `git am --abort` can be run to stop any reconciliation,
+> remove all commits applied to the branch until that point and restore
+> the previous base branch.
 
 ```bash
 cd kubernetes
-git am ../patches/*.patch
+git am --3way ../patches/*.patch
 ```
 
 When a patch fails to apply, git will stop and report the conflict:
 
-```
+```text
 Applying: UPSTREAM: <carry>: ...
 error: patch failed: ...
 ```
 
-Resolve the conflict in the affected files, then:
-
-```bash
-git add <resolved files>
-git am --continue
-```
+Resolve the conflict in the affected files, stage the changes and run
+`git am --continue`. *Do not* run `git commit` - that will create a new
+commit instead of updating the patch commit.
 
 Repeat until all patches are applied.
 
 > [!NOTE]
 > TODO: add scripts automating some of the finalizing steps mentioned here:
 > https://docs.kcp.io/kcp/main/contributing/guides/rebasing-kubernetes/#rebase-process
+
+Specifically check that `staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go` satisfies `kubernetes.Interface`.
+
+Now the vendor directories and codegen for kube must be updated - be
+sure that this has the `GOWORK` set so the kube fork uses the updated
+local copies:
+
+```bash
+
+GOWORK= hack/pin-dependency.sh github.com/kcp-dev/logicalcluster/v3 v3.0.5
+
+../hack/pin-local-replace.bash
+
+git add . && git commit -m 'CARRY: <drop>: Add kcp dependencies'
+
+GOWORK= ./hack/update-vendor.sh
+
+git add . && git commit -m 'CARRY: <drop>: vendor'
+
+GOWORK= ./hack/update-codegen.sh
+
+git add . && git commit -m 'CARRY: <drop>: codegen'
+
+```
+
+## Updating kcp
+
+Go into kcp, ensure `GOWORK` is set and run the code generation:
+
+```bash
+cd kcp
+./hack/update-codegen-client.sh
+./hack/gen-patch-defaultrestmapper.sh
+```
+
+> [!NOTE]
+> There's the codegen recipe and that will have to be run later when
+> making the pull requests for the changes.
+
+<!-- TODO just skip go mod download when GOROOT is set -->
+
+And commit the generated code:
+
+```bash
+git add . && git commit -m "codegen"
+```
+
+Now run the tests in kcp to see if any breakages occur:
+
+```bash
+make fix-lint
+
+make test
+
+make test-e2e
+
+make test-e2e-sharded-minimal
+```
 
 ## Re-exporting patches after conflict resolution
 

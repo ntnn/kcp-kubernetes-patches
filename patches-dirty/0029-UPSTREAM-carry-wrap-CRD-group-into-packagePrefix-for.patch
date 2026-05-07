@@ -1,0 +1,32 @@
+From 006bceb8b292ca36d09ba048eaa6537374f9b829 Mon Sep 17 00:00:00 2001
+From: Marvin Beckers <marvin@kubermatic.com>
+Date: Fri, 12 Jul 2024 14:58:29 +0200
+Subject: [PATCH 29/90] UPSTREAM: <carry>: wrap CRD group into packagePrefix
+ for OpenAPIV3 builder
+
+Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
+---
+ .../pkg/controller/openapi/builder/builder.go                 | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder/builder.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder/builder.go
+index f598be356ba..87a2e6d35d7 100644
+--- a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder/builder.go
++++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder/builder.go
+@@ -593,11 +593,11 @@ func (b *builder) getOpenAPIV3Config() *common.OpenAPIV3Config {
+ 		},
+ 		GetDefinitions: func(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
+ 			def := utilopenapi.GetOpenAPIDefinitionsWithoutDisabledFeatures(generatedopenapi.GetOpenAPIDefinitions)(ref)
+-			def[gvkToModelName(b.group, b.version, b.kind)] = common.OpenAPIDefinition{
++			def[gvkToModelName(packagePrefix(b.group), b.version, b.kind)] = common.OpenAPIDefinition{
+ 				Schema:       *b.schema,
+ 				Dependencies: []string{objectMetaType},
+ 			}
+-			def[gvkToModelName(b.group, b.version, b.listKind)] = common.OpenAPIDefinition{
++			def[gvkToModelName(packagePrefix(b.group), b.version, b.listKind)] = common.OpenAPIDefinition{
+ 				Schema: *b.listSchema,
+ 			}
+ 			return def
+-- 
+2.54.0
+

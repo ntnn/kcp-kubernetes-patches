@@ -1,0 +1,27 @@
+From c548795c2edd8d9a82aa7b2f447b03f72b1b8959 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Wed, 6 May 2026 15:58:53 +0200
+Subject: [PATCH 86/90] fixup e15ab7e12f5
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go
+index f8683d963bd..4cdaa6abe1b 100644
+--- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go
+@@ -14,7 +14,7 @@ func (c *Plugin[H]) SetInformerFactory(f informers.SharedInformerFactory) {
+ 	c.informerFactory = f
+ }
+ 
+-func (c *Plugin[H]) SetSourceFactory(s sourceFactory[H]) {
++func (c *Plugin[H]) SetSourceFactory(s apiSourceFactory[H]) {
+ 	c.apiSourceFactory = s
+ }
+ 
+-- 
+2.54.0
+

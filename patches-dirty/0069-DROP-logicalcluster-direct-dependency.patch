@@ -1,0 +1,27 @@
+From 616e8985feed5f640433bb86f5d0b71cf8841538 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Sun, 12 Apr 2026 01:01:36 +0200
+Subject: [PATCH 69/90] DROP: logicalcluster direct dependency
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ go.mod | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/go.mod b/go.mod
+index 39e17554f01..1a2dea86932 100644
+--- a/go.mod
++++ b/go.mod
+@@ -36,6 +36,8 @@ require (
+ 	github.com/google/uuid v1.6.0
+ 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
+ 	github.com/ishidawataru/sctp v0.0.0-20250521072954-ae8eb7fa7995
++	github.com/kcp-dev/logicalcluster/v3 v3.0.5
++	github.com/libopenstorage/openstorage v1.0.0
+ 	github.com/lithammer/dedent v1.1.0
+ 	github.com/moby/ipvs v1.1.0
+ 	github.com/moby/sys/userns v0.1.0
+-- 
+2.54.0
+

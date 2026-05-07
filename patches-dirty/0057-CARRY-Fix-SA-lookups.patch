@@ -1,0 +1,84 @@
+From b74570ec5d3ef7ff28eb2e49afa487d15f6d6121 Mon Sep 17 00:00:00 2001
+From: Mangirdas Judeikis <mangirdas@judeikis.lt>
+Date: Mon, 2 Mar 2026 08:34:23 +0200
+Subject: [PATCH 57/90] CARRY: Fix SA lookups
+
+---
+ pkg/kubeapiserver/authenticator/config.go |  8 +++++---
+ pkg/serviceaccount/claims.go              | 17 +++++++++++------
+ 2 files changed, 16 insertions(+), 9 deletions(-)
+
+diff --git a/pkg/kubeapiserver/authenticator/config.go b/pkg/kubeapiserver/authenticator/config.go
+index a2d94019099..c80bd8fa6e1 100644
+--- a/pkg/kubeapiserver/authenticator/config.go
++++ b/pkg/kubeapiserver/authenticator/config.go
+@@ -147,7 +147,7 @@ func (config Config) New(serverLifecycle context.Context) (authenticator.Request
+ 		tokenAuthenticators = append(tokenAuthenticators, serviceAccountAuth)
+ 	}
+ 	if len(config.ServiceAccountIssuers) > 0 && config.ServiceAccountPublicKeysGetter != nil {
+-		serviceAccountAuth, err := newServiceAccountAuthenticator(config.ServiceAccountIssuers, config.ServiceAccountPublicKeysGetter, config.APIAudiences, config.ServiceAccountTokenGetter)
++		serviceAccountAuth, err := newServiceAccountAuthenticator(config.ServiceAccountIssuers, config.ServiceAccountPublicKeysGetter, config.APIAudiences, config.ServiceAccountTokenGetter, config.ServiceAccountLookup)
+ 		if err != nil {
+ 			return nil, nil, nil, nil, err
+ 		}
+@@ -392,11 +392,13 @@ func newLegacyServiceAccountAuthenticator(publicKeysGetter serviceaccount.Public
+ }
+ 
+ // newServiceAccountAuthenticator returns an authenticator.Token or an error
+-func newServiceAccountAuthenticator(issuers []string, publicKeysGetter serviceaccount.PublicKeysGetter, apiAudiences authenticator.Audiences, serviceAccountGetter serviceaccount.ServiceAccountTokenClusterGetter) (authenticator.Token, error) {
++// KCP carry patch: added lookup parameter to respect --service-account-lookup flag
++// for JWT tokens in multi-shard environments.
++func newServiceAccountAuthenticator(issuers []string, publicKeysGetter serviceaccount.PublicKeysGetter, apiAudiences authenticator.Audiences, serviceAccountGetter serviceaccount.ServiceAccountTokenClusterGetter, lookup bool) (authenticator.Token, error) {
+ 	if publicKeysGetter == nil {
+ 		return nil, fmt.Errorf("no public key getter provided")
+ 	}
+-	tokenAuthenticator := serviceaccount.JWTTokenAuthenticator(issuers, publicKeysGetter, apiAudiences, serviceaccount.NewValidator(serviceAccountGetter))
++	tokenAuthenticator := serviceaccount.JWTTokenAuthenticator(issuers, publicKeysGetter, apiAudiences, serviceaccount.NewValidatorWithLookup(serviceAccountGetter, lookup))
+ 	return tokenAuthenticator, nil
+ }
+ 
+diff --git a/pkg/serviceaccount/claims.go b/pkg/serviceaccount/claims.go
+index 9555a5c83d8..b1fbb2c4e53 100644
+--- a/pkg/serviceaccount/claims.go
++++ b/pkg/serviceaccount/claims.go
+@@ -134,13 +134,24 @@ func Claims(sa core.ServiceAccount, pod *core.Pod, secret *core.Secret, node *co
+ }
+ 
+ func NewValidator(getter ServiceAccountTokenClusterGetter) Validator[privateClaims] {
++	return NewValidatorWithLookup(getter, true)
++}
++
++// NewValidatorWithLookup creates a validator with configurable lookup behavior.
++// When lookup is false, the validator skips verifying that the service account,
++// secret, pod, and node still exist. This is useful in multi-shard environments
++// where the validating server may not have access to the workspace containing the SA.
++// KCP carry patch: respect --service-account-lookup=false for JWT tokens.
++func NewValidatorWithLookup(getter ServiceAccountTokenClusterGetter, lookup bool) Validator[privateClaims] {
+ 	return &validator{
+ 		getter: getter,
++		lookup: lookup,
+ 	}
+ }
+ 
+ type validator struct {
+ 	getter ServiceAccountTokenClusterGetter
++	lookup bool
+ }
+ 
+ var _ = Validator[privateClaims](&validator{})
+@@ -237,12 +248,6 @@ func (v *validator) Validate(ctx context.Context, _ string, public *jwt.Claims,
+ 	var nodeName, nodeUID string
+ 	if noderef != nil {
+ 		switch {
+-		case podref != nil:
+-			if utilfeature.DefaultFeatureGate.Enabled(features.ServiceAccountTokenPodNodeInfo) {
+-				// for pod-bound tokens, just extract the node claims
+-				nodeName = noderef.Name
+-				nodeUID = noderef.UID
+-			}
+ 		case podref == nil:
+ 			if !utilfeature.DefaultFeatureGate.Enabled(features.ServiceAccountTokenNodeBindingValidation) {
+ 				klog.V(4).Infof("ServiceAccount token is bound to a Node object, but the node bound token validation feature is disabled")
+-- 
+2.54.0
+

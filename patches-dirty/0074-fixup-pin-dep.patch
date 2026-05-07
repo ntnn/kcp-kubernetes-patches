@@ -1,0 +1,37 @@
+From 00ca7320752b3a65117b06aaec451fc6b72043f4 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Wed, 6 May 2026 14:54:44 +0200
+Subject: [PATCH 74/90] fixup-pin-dep
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ hack/pin-dependency.sh | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/hack/pin-dependency.sh b/hack/pin-dependency.sh
+index 926eabe95af..c3786e840e8 100755
+--- a/hack/pin-dependency.sh
++++ b/hack/pin-dependency.sh
+@@ -75,6 +75,7 @@ if [ -d "$replacement" ]; then
+     replacement="$dep"
+ fi
+ 
++rev=""
+ if [ -n "$sha" ]; then
+     # Find the resolved version before trying to use it.
+     echo "Running: go mod download ${replacement}@${sha}"
+@@ -104,9 +105,7 @@ fi
+ # Propagate pinned version to staging repos
+ for repo in $(kube::util::list_staging_repos); do
+   pushd "staging/src/k8s.io/${repo}" >/dev/null 2>&1
+-    if [ -n "$rev" ]; then
+-        go mod edit -require "${dep}@${rev}"
+-    fi
++    [ -n "${rev}" ] && go mod edit -require "${dep}@${rev}"
+ 
+     # When replacing with a fork, always add a replace statement in all go.mod
+     # files (not just the root of the staging repos!) because there might be
+-- 
+2.54.0
+

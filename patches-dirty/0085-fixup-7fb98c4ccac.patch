@@ -1,0 +1,29 @@
+From 43b962c11654ca7b81603908ba7952f7419a6a47 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Wed, 6 May 2026 15:58:07 +0200
+Subject: [PATCH 85/90] fixup 7fb98c4ccac
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go   | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go b/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go
+index b112bd86199..142e41faf52 100644
+--- a/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go
++++ b/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go
+@@ -119,6 +119,10 @@ func (s *hack) WaitForCacheSync(stopCh <-chan struct{}) map[reflect.Type]bool {
+ 	panic("programmer error: using a cluster-unaware informer factory, need to cast this to use the cluster-aware one!")
+ }
+ 
++func (s *hack) WaitForCacheSyncWithContext(_ context.Context) cache.SyncResult {
++	panic("programmer error: using a cluster-unaware informer factory, need to cast this to use the cluster-aware one!")
++}
++
+ func (s *hack) Admissionregistration() admissionregistration.Interface {
+ 	panic("programmer error: using a cluster-unaware informer factory, need to cast this to use the cluster-aware one!")
+ }
+-- 
+2.54.0
+

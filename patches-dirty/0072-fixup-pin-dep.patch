@@ -1,0 +1,65 @@
+From 9fc019b4337b02f50ad838d28ede64f169a6e4b8 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Wed, 6 May 2026 14:52:07 +0200
+Subject: [PATCH 72/90] fixup-pin-dep
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ hack/pin-dependency.sh | 32 ++++++++++++++++++--------------
+ 1 file changed, 18 insertions(+), 14 deletions(-)
+
+diff --git a/hack/pin-dependency.sh b/hack/pin-dependency.sh
+index a14ded830b3..e87478a11a4 100755
+--- a/hack/pin-dependency.sh
++++ b/hack/pin-dependency.sh
+@@ -75,20 +75,22 @@ if [ -d "$replacement" ]; then
+     replacement="$dep"
+ fi
+ 
+-# Find the resolved version before trying to use it.
+-echo "Running: go mod download ${replacement}@${sha}"
+-if meta=$(go mod download -json "${replacement}@${sha}"); then
+-    rev=$(echo "${meta}" | jq -r ".Version")
+-else
+-    error=$(echo "${meta}" | jq -r ".Error")
+-    echo "Download failed: ${error}" >&2
+-    exit 1
+-fi
+-echo "Resolved to ${replacement}@${rev}"
++if [ -n "$sha" ]; then
++    # Find the resolved version before trying to use it.
++    echo "Running: go mod download ${replacement}@${sha}"
++    if meta=$(go mod download -json "${replacement}@${sha}"); then
++        rev=$(echo "${meta}" | jq -r ".Version")
++    else
++        error=$(echo "${meta}" | jq -r ".Error")
++        echo "Download failed: ${error}" >&2
++        exit 1
++    fi
++    echo "Resolved to ${replacement}@${rev}"
+ 
+-# Add the require directive
+-echo "Running: go mod edit -require ${dep}@${rev}"
+-go mod edit -require "${dep}@${rev}"
++    # Add the require directive
++    echo "Running: go mod edit -require ${dep}@${rev}"
++    go mod edit -require "${dep}@${rev}"
++fi
+ 
+ # Add the replace directive
+ if [ "${replacement}" != "${dep}" ]; then
+@@ -102,7 +104,9 @@ fi
+ # Propagate pinned version to staging repos
+ for repo in $(kube::util::list_staging_repos); do
+   pushd "staging/src/k8s.io/${repo}" >/dev/null 2>&1
+-    go mod edit -require "${dep}@${rev}"
++    if [ -n "$rev" ]; then
++        go mod edit -require "${dep}@${rev}"
++    fi
+ 
+     # When replacing with a fork, always add a replace statement in all go.mod
+     # files (not just the root of the staging repos!) because there might be
+-- 
+2.54.0
+

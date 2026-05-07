@@ -1,0 +1,28 @@
+From e15ab7e12f5fe9b9ff5fbd02615c1d8a60f995bd Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Wed, 6 May 2026 15:55:24 +0200
+Subject: [PATCH 84/90] fixup 12515b5509d - UPSTREAM: <carry>: Clusterize
+ ValidatingAdmissionPolicy admission plugin and policy plugin framework
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go
+index 020c562a9c4..f8683d963bd 100644
+--- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go
+@@ -15,7 +15,7 @@ func (c *Plugin[H]) SetInformerFactory(f informers.SharedInformerFactory) {
+ }
+ 
+ func (c *Plugin[H]) SetSourceFactory(s sourceFactory[H]) {
+-	c.sourceFactory = s
++	c.apiSourceFactory = s
+ }
+ 
+ func (c *Plugin[H]) SetClusterName(clusterName logicalcluster.Name) {
+-- 
+2.54.0
+

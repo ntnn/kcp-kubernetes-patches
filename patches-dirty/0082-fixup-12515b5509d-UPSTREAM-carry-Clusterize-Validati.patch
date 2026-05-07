@@ -1,0 +1,28 @@
+From db935963aa40d6aa4e0d048d2fda2bda37ba252f Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Wed, 6 May 2026 15:49:59 +0200
+Subject: [PATCH 82/90] fixup 12515b5509d - UPSTREAM: <carry>: Clusterize
+ ValidatingAdmissionPolicy admission plugin and policy plugin framework
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../apiserver/pkg/admission/plugin/policy/generic/plugin.go     | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin.go
+index 98e368f212d..87787d9cce5 100644
+--- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin.go
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin.go
+@@ -257,7 +257,7 @@ func (c *Plugin[H]) ValidateInitialization() error {
+ 
+ 	// Construct source once, avoiding overwriting if already set.
+ 	if c.source == nil {
+-		apiSource = c.apiSourceFactory(c.informerFactory, c.client, c.dynamicClient, c.restMapper, c.clusterName)
++		apiSource := c.apiSourceFactory(c.informerFactory, c.client, c.dynamicClient, c.restMapper, c.clusterName)
+ 
+ 		if len(c.staticManifestsDir) > 0 {
+ 			if c.staticSourceFactory == nil {
+-- 
+2.54.0
+

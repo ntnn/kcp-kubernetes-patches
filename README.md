@@ -15,6 +15,10 @@ cd kcp-kubernetes-patches
 ./hack/setup.bash both
 ```
 
+> [!NOTE]
+> Using the setup script is optional - it is just a helper and a suggestion on branch management.
+> Only important bit is that kcp/ is a kcp repository and kubernetes/ is a kubernetes repository.
+
 This will clone or update the repositories and make feature branches in
 the kubernetes and the kcp clones.
 
@@ -213,7 +217,7 @@ local copies:
 
 ```bash
 
-GOWORK= hack/pin-dependency.sh github.com/kcp-dev/logicalcluster/v3 v3.0.5
+GOWORK= ./hack/pin-dependency.sh github.com/kcp-dev/logicalcluster/v3 v3.0.5
 
 ../hack/pin-local-replace.bash
 

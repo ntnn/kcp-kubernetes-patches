@@ -1,0 +1,30 @@
+From b65df2805a6fcadbacd83b6b2e71baee852a0a53 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Wed, 6 May 2026 15:46:21 +0200
+Subject: [PATCH 81/90] fixup 7fb98c4ccac - UPSTREAM: <carry>: add client and
+ informer hacks
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go   | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go b/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go
+index 8b4ca55865a..0cb727ab393 100644
+--- a/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go
++++ b/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go
+@@ -86,6 +86,10 @@ func (s *hack) Start(stopCh <-chan struct{}) {
+ 	panic("programmer error: using a cluster-unaware informer factory, need to cast this to use the cluster-aware one!")
+ }
+ 
++func (s *hack) InformerName() *cache.InformerName {
++	panic("programmer error: using a cluster-unaware informer factory, need to cast this to use the cluster-aware one!")
++}
++
+ func (s *hack) InformerFor(obj runtime.Object, newFunc internalinterfaces.NewInformerFunc) cache.SharedIndexInformer {
+ 	panic("programmer error: using a cluster-unaware informer factory, need to cast this to use the cluster-aware one!")
+ }
+-- 
+2.54.0
+

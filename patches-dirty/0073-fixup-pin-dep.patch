@@ -1,0 +1,27 @@
+From 5050dbabbe1b2729e51fbbe81e336d137d00e8f9 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Wed, 6 May 2026 14:53:02 +0200
+Subject: [PATCH 73/90] fixup-pin-dep
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ hack/pin-dependency.sh | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/hack/pin-dependency.sh b/hack/pin-dependency.sh
+index e87478a11a4..926eabe95af 100755
+--- a/hack/pin-dependency.sh
++++ b/hack/pin-dependency.sh
+@@ -55,7 +55,7 @@ case ${dep} in
+         ;;
+ esac
+ 
+-if [[ -z "${dep}" || -z "${replacement}" || -z "${sha}" ]]; then
++if [[ -z "${dep}" || -z "${replacement}" ]]; then
+   echo "Usage:"
+   echo "  hack/pin-dependency.sh \$MODULE[=\$REPLACEMENT] \$SHA-OR-TAG"
+   echo ""
+-- 
+2.54.0
+

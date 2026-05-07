@@ -1,0 +1,28 @@
+From 533acee366df32b534525cb233dcd1713cd5f65d Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Wed, 6 May 2026 16:00:26 +0200
+Subject: [PATCH 87/90] fixup 12515b5509d - UPSTREAM: <carry>: Clusterize
+ ValidatingAdmissionPolicy admission plugin and policy plugin framework
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../apiserver/pkg/admission/plugin/policy/validating/plugin.go  | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating/plugin.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating/plugin.go
+index 48527469529..143f0347291 100644
+--- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating/plugin.go
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating/plugin.go
+@@ -89,7 +89,7 @@ func (a *Plugin) SetManifestLoaders(loaders *initializer.ManifestLoaders) {
+ 	a.SetStaticSourceFactory(func(manifestsDir string) (generic.ReloadableSource[PolicyHook], error) {
+ 		staticSource := source.NewStaticPolicySource(manifestsDir, a.GetAPIServerID(),
+ 			func(p *v1.ValidatingAdmissionPolicy) (Validator, error) {
+-				v := compilePolicy(p)
++				v := CompilePolicy(p)
+ 				if err := v.CompileError(); err != nil {
+ 					return nil, err
+ 				}
+-- 
+2.54.0
+

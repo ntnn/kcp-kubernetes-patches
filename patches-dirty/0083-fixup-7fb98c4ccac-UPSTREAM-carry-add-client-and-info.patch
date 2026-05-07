@@ -1,0 +1,38 @@
+From b52fbd4da63856f11d701b1eec5e1ea1527c254f Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Wed, 6 May 2026 15:54:07 +0200
+Subject: [PATCH 83/90] fixup 7fb98c4ccac - UPSTREAM: <carry>: add client and
+ informer hacks
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go  | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go b/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go
+index 0cb727ab393..b112bd86199 100644
+--- a/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go
++++ b/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go
+@@ -19,6 +19,7 @@ limitations under the License.
+ package informerfactoryhack
+ 
+ import (
++	"context"
+ 	"reflect"
+ 
+ 	kcpkubernetesinformers "github.com/kcp-dev/client-go/informers"
+@@ -86,6 +87,10 @@ func (s *hack) Start(stopCh <-chan struct{}) {
+ 	panic("programmer error: using a cluster-unaware informer factory, need to cast this to use the cluster-aware one!")
+ }
+ 
++func (s *hack) StartWithContext(_ context.Context) {
++	panic("programmer error: using a cluster-unaware informer factory, need to cast this to use the cluster-aware one!")
++}
++
+ func (s *hack) InformerName() *cache.InformerName {
+ 	panic("programmer error: using a cluster-unaware informer factory, need to cast this to use the cluster-aware one!")
+ }
+-- 
+2.54.0
+

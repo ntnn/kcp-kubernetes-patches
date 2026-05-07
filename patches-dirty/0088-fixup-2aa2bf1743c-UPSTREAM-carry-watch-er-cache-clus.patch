@@ -1,0 +1,30 @@
+From dfb1fc4d89ad515e0eb28802d8e1dfdb6ff95fdb Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Wed, 6 May 2026 16:16:07 +0200
+Subject: [PATCH 88/90] fixup 2aa2bf1743c - UPSTREAM: <carry>: watch(er/cache):
+ clusterize
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../k8s.io/apiserver/pkg/registry/generic/registry/store.go   | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
+index 54cabc41a7c..3a8299dc49d 100644
+--- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
++++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
+@@ -1724,7 +1724,9 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
+ 
+ // startObservingCount starts monitoring given prefix and periodically updating metrics. It returns a function to stop collection.
+ func (e *Store) startObservingCount(period time.Duration, objectCountTracker flowcontrolrequest.StorageObjectCountTracker) func() {
+-	prefix := e.KeyRootFunc(genericapirequest.WithCluster(genericapirequest.NewContext(), genericapirequest.Cluster{Wildcard: true}))
++	ctx := genericapirequest.NewContext()
++	ctx = genericapirequest.WithCluster(ctx, genericapirequest.Cluster{Wildcard: true})
++	prefix := e.KeyRootFunc(ctx)
+ 	resourceName := e.DefaultQualifiedResource.String()
+ 	klog.V(2).InfoS("Monitoring resource count at path", "resource", resourceName, "path", "<storage-prefix>/"+prefix)
+ 	stopCh := make(chan struct{})
+-- 
+2.54.0
+

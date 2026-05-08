@@ -1,8 +1,8 @@
 From e83661e572164976557464e27b183eaa9e26f8fa Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Mon, 29 Sep 2025 14:44:57 +0200
-Subject: [PATCH 48/60] UPSTREAM: <carry>: Add
- authorization.kcp.io/cluster-name extra to webhook requests
+Subject: [PATCH] UPSTREAM: <carry>: Add authorization.kcp.io/cluster-name
+ extra to webhook requests
 
 Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
 Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
@@ -39,5 +39,5 @@ index 2e74e956a53..c1887119b0d 100644
  	}
  
 -- 
-2.53.0
+2.54.0
 

@@ -1,7 +1,7 @@
 From 0e315cb39009dec61a32a682cfe24e161b4593de Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 11:28:41 +0200
-Subject: [PATCH 53/60] UPSTREAM: <carry>: add client and informer hacks
+Subject: [PATCH] UPSTREAM: <carry>: add client and informer hacks
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
@@ -615,5 +615,5 @@ index 00000000000..8b4ca55865a
 +	return s.clusterAware
 +}
 -- 
-2.53.0
+2.54.0
 

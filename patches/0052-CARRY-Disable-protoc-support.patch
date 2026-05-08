@@ -1,7 +1,7 @@
 From 6635d84a473c827fd150031b214977099ad5530a Mon Sep 17 00:00:00 2001
 From: Mangirdas Judeikis <mangirdas@judeikis.lt>
 Date: Mon, 8 Dec 2025 11:23:02 +0200
-Subject: [PATCH 52/60] CARRY: Disable protoc support
+Subject: [PATCH] CARRY: Disable protoc support
 
 ---
  hack/update-codegen.sh                                       | 1 -
@@ -97,5 +97,5 @@ index 23e4e3ee241..465169dc2bd 100755
 -    --prefers-protobuf \
      "${SCRIPT_ROOT}/pkg/apis"
 -- 
-2.53.0
+2.54.0
 

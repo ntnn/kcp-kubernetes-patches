@@ -1,7 +1,7 @@
 From 377977553be0836dfd405b2dc4fc83c125779654 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 13:30:16 +0200
-Subject: [PATCH 10/60] UPSTREAM: <carry>: clusterize storage hash
+Subject: [PATCH] UPSTREAM: <carry>: clusterize storage hash
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
@@ -57,5 +57,5 @@ index 56c392fd057..13e7a0726a7 100644
  
  	// Get the list of actions for the given scope.
 -- 
-2.53.0
+2.54.0
 

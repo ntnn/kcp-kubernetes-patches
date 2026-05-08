@@ -1,8 +1,8 @@
 From 2b12c4718398af02dcd30de6b69b35c48b11f11e Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 13:34:18 +0200
-Subject: [PATCH 12/60] UPSTREAM: <carry>: endpoints/patch: wire openapi for
- CRD strategic merge patch
+Subject: [PATCH] UPSTREAM: <carry>: endpoints/patch: wire openapi for CRD
+ strategic merge patch
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
@@ -258,5 +258,5 @@ index 75fbc6abc91..f4ae28959ee 100644
 +	return gvkListResult
 +}
 -- 
-2.53.0
+2.54.0
 

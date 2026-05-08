@@ -1,7 +1,7 @@
 From ec6856f6e4668ad484fd1f2977eba68a482792f3 Mon Sep 17 00:00:00 2001
 From: Mangirdas Judeikis <mangirdas@judeikis.lt>
 Date: Mon, 2 Mar 2026 08:34:23 +0200
-Subject: [PATCH 59/60] CARRY: Fix SA lookups
+Subject: [PATCH] CARRY: Fix SA lookups
 
 ---
  pkg/kubeapiserver/authenticator/config.go |   8 +-
@@ -239,5 +239,5 @@ index 31903457c98..9538bd03525 100644
  			nodeUID = noderef.UID
  		}
 -- 
-2.53.0
+2.54.0
 

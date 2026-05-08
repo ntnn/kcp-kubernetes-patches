@@ -1,8 +1,8 @@
 From 6ea2ba269916fdb63573b391c01abdc7febac521 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 13:55:13 +0200
-Subject: [PATCH 21/60] UPSTREAM: <carry>: storage: add
- UseResourceAsPrefixDefault for legacy storage paths
+Subject: [PATCH] UPSTREAM: <carry>: storage: add UseResourceAsPrefixDefault
+ for legacy storage paths
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
@@ -45,5 +45,5 @@ index f4ccc62f65c..1059388ef02 100644
  	return etcdResourcePrefix
  }
 -- 
-2.53.0
+2.54.0
 

@@ -1,7 +1,7 @@
 From 37775004ff71a70fe45edb1ddc4fd88baadd6217 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Fri, 1 Sep 2023 12:14:15 +0200
-Subject: [PATCH 04/60] UPSTREAM: <carry>: clusterize controllers
+Subject: [PATCH] UPSTREAM: <carry>: clusterize controllers
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 Co-authored-by: Marvin Beckers <marvin@kubermatic.com>
@@ -1732,5 +1732,5 @@ index 2f8a1d40518..e7e4f93b9b6 100644
  		corev1.FinalizerKubernetes)
  
 -- 
-2.53.0
+2.54.0
 

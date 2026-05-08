@@ -1,7 +1,7 @@
 From 54ac9797910651262131fae705ae983de1b02ad3 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 13:49:07 +0200
-Subject: [PATCH 13/60] UPSTREAM: <carry>: storage/etcd3: clusterize
+Subject: [PATCH] UPSTREAM: <carry>: storage/etcd3: clusterize
 
 Co-authored-by: Marvin Beckers <marvin@kubermatic.com>
 Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
@@ -585,5 +585,5 @@ index 04e9f64df4b..95ab012be54 100644
  	obj := &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo"}}
  	out := &example.Pod{}
 -- 
-2.53.0
+2.54.0
 

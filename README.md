@@ -59,7 +59,7 @@ the patch files:
 
 ```bash
 rm ../patches/*.patch
-git format-patch <tag>..HEAD -o ../patches/
+git format-patch --no-numbered --no-thread --no-cover-letter --no-stat <tag>..HEAD -o ../patches/
 ```
 
 Commit the updated patches in this repository.

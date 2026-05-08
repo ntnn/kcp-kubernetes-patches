@@ -1,7 +1,7 @@
 From 94ab8f5133e8086a2b9df5f0c53963813765be4a Mon Sep 17 00:00:00 2001
 From: Mangirdas Judeikis <mangirdas@judeikis.lt>
 Date: Tue, 3 Sep 2024 15:32:27 +0300
-Subject: [PATCH 25/60] UPSTREAM: <carry>: generic cleanup
+Subject: [PATCH] UPSTREAM: <carry>: generic cleanup
 
 ---
  pkg/controlplane/apiserver/config.go          | 29 +--------
@@ -254,5 +254,5 @@ index a5b1372da47..22f8c5c01cb 100644
  		return nil
  	}
 -- 
-2.53.0
+2.54.0
 

@@ -1,7 +1,7 @@
 From e9e6c364e62895d44c5a76093d0a16a905772e59 Mon Sep 17 00:00:00 2001
 From: Christoph Mewes <christoph@kubermatic.com>
 Date: Wed, 13 Nov 2024 14:50:45 +0100
-Subject: [PATCH 33/60] UPSTREAM: <carry>: include cluster name in authz
+Subject: [PATCH] UPSTREAM: <carry>: include cluster name in authz
  SubjectAccessReview in webhooks
 
 On-behalf-of: @SAP christoph.mewes@sap.com
@@ -46,5 +46,5 @@ index 3df8e580e44..2e74e956a53 100644
  		r.Spec.ResourceAttributes = resourceAttributesFrom(attr)
  	} else {
 -- 
-2.53.0
+2.54.0
 

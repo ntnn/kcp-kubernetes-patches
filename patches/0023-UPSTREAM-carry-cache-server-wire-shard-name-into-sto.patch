@@ -1,8 +1,7 @@
 From 5a0f05a490e4006c867f1bd25900177b28f9c269 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 13:31:40 +0200
-Subject: [PATCH 23/60] UPSTREAM: <carry>: cache-server: wire shard name into
- storage
+Subject: [PATCH] UPSTREAM: <carry>: cache-server: wire shard name into storage
 
 Co-authored-by: Marvin Beckers <marvin@kubermatic.com>
 Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
@@ -320,5 +319,5 @@ index e21cdaae543..4cc45c9fdde 100644
  	}
  	return curObj, oldObj, nil
 -- 
-2.53.0
+2.54.0
 

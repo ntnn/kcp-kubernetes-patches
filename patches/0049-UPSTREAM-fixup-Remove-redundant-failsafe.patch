@@ -1,7 +1,7 @@
 From a0968afed5d3647509423aa36d02e5bcc4b2d83d Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Tue, 30 Sep 2025 09:57:21 +0200
-Subject: [PATCH 49/60] UPSTREAM: <fixup>: Remove redundant failsafe
+Subject: [PATCH] UPSTREAM: <fixup>: Remove redundant failsafe
 
 Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
 Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
@@ -31,5 +31,5 @@ index 4766fb7b5f5..276be077ead 100644
  			var w Warrant
  			if err := json.Unmarshal([]byte(v), &w); err != nil {
 -- 
-2.53.0
+2.54.0
 

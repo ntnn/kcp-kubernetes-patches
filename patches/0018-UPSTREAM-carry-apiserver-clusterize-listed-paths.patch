@@ -1,7 +1,7 @@
 From 26623850344c4f59102cbf1f4c216c5592f04459 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 15:55:21 +0200
-Subject: [PATCH 18/60] UPSTREAM: <carry>: apiserver: clusterize listed paths
+Subject: [PATCH] UPSTREAM: <carry>: apiserver: clusterize listed paths
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
@@ -218,5 +218,5 @@ index 14075798867..47572a4e3a6 100644
 +	responsewriters.WriteRawJSON(i.StatusCode, metav1.RootPaths{Paths: i.PathProvider.ListedPaths(cluster)}, w)
  }
 -- 
-2.53.0
+2.54.0
 

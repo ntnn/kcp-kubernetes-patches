@@ -1,8 +1,8 @@
 From 925512c80e74e541dd0526ee353a676a20dcc102 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 13:40:08 +0200
-Subject: [PATCH 15/60] UPSTREAM: <carry>: endpoints: set
- kcp.io/original-api-version on wildcard partial metadata requests
+Subject: [PATCH] UPSTREAM: <carry>: endpoints: set kcp.io/original-api-version
+ on wildcard partial metadata requests
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
@@ -136,5 +136,5 @@ index 00000000000..1843367e5f9
 +	partial.SetAnnotations(annotations)
 +}
 -- 
-2.53.0
+2.54.0
 

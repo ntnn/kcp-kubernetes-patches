@@ -1,8 +1,7 @@
 From d5e1817ed49e0feae3b1ae7d5fe2c8f3e2efc9e9 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 09:16:28 +0200
-Subject: [PATCH 03/60] UPSTREAM: <carry>: controlplane/apiserver: add
- miniaggregator
+Subject: [PATCH] UPSTREAM: <carry>: controlplane/apiserver: add miniaggregator
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
@@ -248,5 +247,5 @@ index 00000000000..1061f02e92b
 +	sph.handler[0].ServeHTTP(res, req)
 +}
 -- 
-2.53.0
+2.54.0
 

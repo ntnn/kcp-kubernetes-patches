@@ -1,8 +1,8 @@
 From 3309cc1593c869360e5b665e401e4080c285ba3f Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 15:54:31 +0200
-Subject: [PATCH 17/60] UPSTREAM: <carry>: apiserver: split chain into pre and
- post authz
+Subject: [PATCH] UPSTREAM: <carry>: apiserver: split chain into pre and post
+ authz
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
@@ -42,5 +42,5 @@ index d10415b945f..a4afd533f18 100644
  		workEstimatorCfg := flowcontrolrequest.DefaultWorkEstimatorConfig()
  		requestWorkEstimator := flowcontrolrequest.NewWorkEstimator(
 -- 
-2.53.0
+2.54.0
 

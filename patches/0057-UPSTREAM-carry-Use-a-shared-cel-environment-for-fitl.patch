@@ -1,7 +1,7 @@
 From 103adbb7d7a38a1e5fa06fb2dcd228d8c58eede9 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Tue, 16 Dec 2025 14:55:50 +0100
-Subject: [PATCH 57/60] UPSTREAM: <carry>: Use a shared cel environment for
+Subject: [PATCH] UPSTREAM: <carry>: Use a shared cel environment for
  fitlerCompiler
 
 Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
@@ -52,5 +52,5 @@ index c37e349e951..2511b1ceb58 100644
 +
 +var sharedFilterCompiler = cel.NewConditionCompiler(environment.MustBaseEnvSet(environment.DefaultCompatibilityVersion()))
 -- 
-2.53.0
+2.54.0
 

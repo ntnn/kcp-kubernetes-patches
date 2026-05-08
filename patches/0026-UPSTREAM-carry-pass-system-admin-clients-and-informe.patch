@@ -1,8 +1,8 @@
 From a2e7e77acde5a429ce50fc792c443e1884972eb2 Mon Sep 17 00:00:00 2001
 From: Marvin Beckers <marvin@kubermatic.com>
 Date: Thu, 13 Jun 2024 14:23:15 +0200
-Subject: [PATCH 26/60] UPSTREAM: <carry>: pass system:admin clients and
- informers in generic control plane
+Subject: [PATCH] UPSTREAM: <carry>: pass system:admin clients and informers in
+ generic control plane
 
 Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
 Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
@@ -73,5 +73,5 @@ index 5bcf71f29fe..5e9f4ec39f1 100644
  		if s.ClusterAuthenticationInfo.ClientCA != nil {
  			s.ClusterAuthenticationInfo.ClientCA.AddListener(controller)
 -- 
-2.53.0
+2.54.0
 

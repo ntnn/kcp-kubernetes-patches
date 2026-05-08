@@ -1,7 +1,7 @@
 From 32413a33be89696c7d238075401946647ee3c173 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 16:03:58 +0200
-Subject: [PATCH 14/60] UPSTREAM: <carry>: apiserver: partial wildcard metadata
+Subject: [PATCH] UPSTREAM: <carry>: apiserver: partial wildcard metadata
  request accross identities
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
@@ -97,5 +97,5 @@ index 24294daaf3b..170fd2cb37a 100644
  
  // adjustShardNameIfWildcard determines a shard name. If this is not a shard-wildcard request,
 -- 
-2.53.0
+2.54.0
 

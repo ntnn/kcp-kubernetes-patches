@@ -1,8 +1,8 @@
 From a114d4bd5e34af5f2c473fa121cd607c51cf7ab0 Mon Sep 17 00:00:00 2001
 From: Karol Szwaj <karol.szwaj@gmail.com>
 Date: Thu, 13 Mar 2025 11:08:06 +0100
-Subject: [PATCH 38/60] UPSTREAM: <carry>: Add kube feature gate for global
- service account
+Subject: [PATCH] UPSTREAM: <carry>: Add kube feature gate for global service
+ account
 
 TODO: this commit may be dropped once https://github.com/kcp-dev/kcp/pull/3274 and related issues are done
 
@@ -60,5 +60,5 @@ index b31c2e7f3a9..967f671c90b 100644
  				nsNameSuffix := strings.TrimPrefix(u.GetName(), "system:serviceaccount:")
  				rewritten := &user.DefaultInfo{
 -- 
-2.53.0
+2.54.0
 

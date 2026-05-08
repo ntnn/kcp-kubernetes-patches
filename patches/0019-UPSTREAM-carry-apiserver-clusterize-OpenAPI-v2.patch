@@ -1,7 +1,7 @@
 From 48246a1a69a50d303594e8f54408c75aef7c3883 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 15:55:45 +0200
-Subject: [PATCH 19/60] UPSTREAM: <carry>: apiserver: clusterize OpenAPI v2
+Subject: [PATCH] UPSTREAM: <carry>: apiserver: clusterize OpenAPI v2
 
 Co-authored-by: Marvin Beckers <marvin@kubermatic.com>
 Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
@@ -201,5 +201,5 @@ index 12c8b1ad910..f24b88ea7d8 100644
  
  // InstallV3 adds the static group/versions defined in the RegisteredWebServices to the OpenAPI v3 spec
 -- 
-2.53.0
+2.54.0
 

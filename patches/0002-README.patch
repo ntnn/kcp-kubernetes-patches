@@ -1,7 +1,7 @@
 From 4e43cb5dcf2f057442a297fdbd27e1402e5d9cd1 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Fri, 1 Sep 2023 12:25:07 +0200
-Subject: [PATCH 02/60] README
+Subject: [PATCH] README
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
@@ -114,5 +114,5 @@ index 00000000000..1fe20765924
 +While this fixes the problem in most cases, there might still be errors in case the OpenAPI v2 schema for such a resource is missing `x-kubernetes-patch-strategy` and `x-kubernetes-patch-merge-key` annotations when imported from the CRD OpenAPI v3 schema.
 \ No newline at end of file
 -- 
-2.53.0
+2.54.0
 

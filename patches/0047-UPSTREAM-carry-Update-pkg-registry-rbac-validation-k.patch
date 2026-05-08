@@ -1,7 +1,7 @@
 From 24e64be6d64b5291656446bb350959b2c21e5439 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <10514301+ntnn@users.noreply.github.com>
 Date: Mon, 15 Sep 2025 10:41:22 +0200
-Subject: [PATCH 47/60] UPSTREAM: <carry>: Update
+Subject: [PATCH] UPSTREAM: <carry>: Update
  pkg/registry/rbac/validation/kcp_test.go
 
 Co-authored-by: Copilot <175728472+Copilot@users.noreply.github.com>
@@ -23,5 +23,5 @@ index 452cccf0154..59e114416ea 100644
  			sub:  rbacv1.Subject{Kind: "ServiceAccount", Namespace: "ns", Name: "sa"},
  			want: false,
 -- 
-2.53.0
+2.54.0
 

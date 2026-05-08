@@ -1,7 +1,7 @@
 From 5e5212cd777798bdad63c1e10461908120689366 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Fri, 23 Aug 2024 08:23:28 +0200
-Subject: [PATCH 35/60] UPSTREAM: <carry>: authz: add scoping to default rule
+Subject: [PATCH] UPSTREAM: <carry>: authz: add scoping to default rule
  resolver
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
@@ -422,5 +422,5 @@ index 459d9c21ae5..fe9c963600a 100644
  			t.Errorf("case %q want appliesTo=%t, got appliesTo=%t", tc.testCase, tc.appliesTo, got)
  		}
 -- 
-2.53.0
+2.54.0
 

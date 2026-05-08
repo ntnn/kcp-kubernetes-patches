@@ -1,8 +1,7 @@
 From bd35db0b9b07cec1e49fdf94fb461fe51e222d6d Mon Sep 17 00:00:00 2001
 From: Marvin Beckers <marvin@kubermatic.com>
 Date: Thu, 20 Jun 2024 14:28:07 +0200
-Subject: [PATCH 27/60] UPSTREAM: <carry>: remove REST mapper from admission
- plugins
+Subject: [PATCH] UPSTREAM: <carry>: remove REST mapper from admission plugins
 
 Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
 ---
@@ -138,5 +137,5 @@ index c21240ff8f9..d97955bbfa4 100644
  	}
  
 -- 
-2.53.0
+2.54.0
 

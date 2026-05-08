@@ -1,7 +1,7 @@
 From f970de4915399f7886ef60ee28381da4659503b6 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 12:31:44 +0200
-Subject: [PATCH 22/60] UPSTREAM: <carry>: apiextensions-apiserver
+Subject: [PATCH] UPSTREAM: <carry>: apiextensions-apiserver
 
 Co-authored-by: Marvin Beckers <marvin@kubermatic.com>
 Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
@@ -5517,5 +5517,5 @@ index e36bf452b16..8c97876650d 100644
 +	return models, nil
 +}
 -- 
-2.53.0
+2.54.0
 

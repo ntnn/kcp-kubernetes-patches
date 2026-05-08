@@ -1,7 +1,7 @@
 From e3200754e88f396b125faff298fb51121feeefbf Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Fri, 1 Sep 2023 12:20:14 +0200
-Subject: [PATCH 51/60] UPSTREAM: <carry>: kube-aggregator
+Subject: [PATCH] UPSTREAM: <carry>: kube-aggregator
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
@@ -30,5 +30,5 @@ index 7d4281f2346..0766d67e3d7 100644
  		}
  		delegationHandlers = append(delegationHandlers, handler)
 -- 
-2.53.0
+2.54.0
 

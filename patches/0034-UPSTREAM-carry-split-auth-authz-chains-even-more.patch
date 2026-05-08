@@ -1,7 +1,7 @@
 From 6df8fc96104baecf7191a2379cc1a404272a1fce Mon Sep 17 00:00:00 2001
 From: Mangirdas Judeikis <Mangirdas@Judeikis.LT>
 Date: Tue, 10 Dec 2024 17:17:39 +0200
-Subject: [PATCH 34/60] UPSTREAM: <carry>: split auth/authz chains even more
+Subject: [PATCH] UPSTREAM: <carry>: split auth/authz chains even more
 
 Signed-off-by: Mangirdas Judeikis <Mangirdas@Judeikis.LT>
 On-behalf-of: SAP mangirdas.judeikis@sap.com
@@ -66,5 +66,5 @@ index 58521c5fefa..9458953ce84 100644
  	handler = genericapifilters.WithAudit(handler, c.AuditBackend, c.AuditPolicyRuleEvaluator, c.LongRunningFunc)
  	handler = filterlatency.TrackStarted(handler, c.TracerProvider, "audit")
 -- 
-2.53.0
+2.54.0
 

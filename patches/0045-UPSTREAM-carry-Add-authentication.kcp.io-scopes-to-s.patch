@@ -1,7 +1,7 @@
 From bc2e0111aca25a74475905ff9408223841403f72 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Wed, 10 Sep 2025 16:22:34 +0200
-Subject: [PATCH 45/60] UPSTREAM: <carry>: Add authentication.kcp.io/scopes to
+Subject: [PATCH] UPSTREAM: <carry>: Add authentication.kcp.io/scopes to
  service accounts
 
 Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
@@ -32,5 +32,5 @@ index 9bcdbd4d8e3..e113ced880c 100644
  }
  
 -- 
-2.53.0
+2.54.0
 

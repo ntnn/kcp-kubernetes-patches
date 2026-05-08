@@ -1,7 +1,7 @@
 From c553feb51c18e01a13f20869f2a783b399cb4a28 Mon Sep 17 00:00:00 2001
 From: Marvin Beckers <marvin@kubermatic.com>
 Date: Wed, 24 Jul 2024 17:57:02 +0200
-Subject: [PATCH 09/60] UPSTREAM: <carry>: Clusterize ValidatingAdmissionPolicy
+Subject: [PATCH] UPSTREAM: <carry>: Clusterize ValidatingAdmissionPolicy
  admission plugin and policy plugin framework
 
 Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
@@ -386,5 +386,5 @@ index bdca01e691a..365be591f27 100644
  	if policy.Spec.ParamKind != nil {
  		hasParam = true
 -- 
-2.53.0
+2.54.0
 

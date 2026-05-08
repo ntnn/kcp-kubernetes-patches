@@ -1,8 +1,8 @@
 From a709a95b085eb2a88ebc4f903c6046e4003ba94d Mon Sep 17 00:00:00 2001
 From: Marvin Beckers <marvin@kubermatic.com>
 Date: Fri, 12 Jul 2024 14:58:29 +0200
-Subject: [PATCH 30/60] UPSTREAM: <carry>: wrap CRD group into packagePrefix
- for OpenAPIV3 builder
+Subject: [PATCH] UPSTREAM: <carry>: wrap CRD group into packagePrefix for
+ OpenAPIV3 builder
 
 Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
 ---
@@ -46,5 +46,5 @@ index d0e399d5be4..d6185f13c10 100644
  		kind:     crd.Spec.Names.Kind,
  		listKind: crd.Spec.Names.ListKind,
 -- 
-2.53.0
+2.54.0
 

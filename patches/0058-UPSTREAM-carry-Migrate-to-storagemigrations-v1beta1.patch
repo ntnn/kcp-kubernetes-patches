@@ -1,7 +1,7 @@
 From 064032a76dd18e4276c7cae058e441ec512bfcf5 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Marko=20Mudrini=C4=87?= <mudrinic.mare@gmail.com>
 Date: Wed, 18 Feb 2026 12:33:59 +0100
-Subject: [PATCH 58/60] UPSTREAM: <carry>: Migrate to storagemigrations/v1beta1
+Subject: [PATCH] UPSTREAM: <carry>: Migrate to storagemigrations/v1beta1
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -34,5 +34,5 @@ index ed1faea8c3a..05488e610a3 100644
  }
  
 -- 
-2.53.0
+2.54.0
 

@@ -1,7 +1,7 @@
 From ec0db8c748d639ad3e944f3264315fa3ac30b3fe Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Marko=20Mudrini=C4=87?= <mudrinic.mare@gmail.com>
 Date: Thu, 12 Mar 2026 11:16:08 +0100
-Subject: [PATCH 60/60] CARRY: fix error messages
+Subject: [PATCH] CARRY: fix error messages
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -48,5 +48,5 @@ index a1f96b60ca7..cb399b7eeed 100644
  	}
  	// being unable to set the version does not prevent the object from being extracted
 -- 
-2.53.0
+2.54.0
 

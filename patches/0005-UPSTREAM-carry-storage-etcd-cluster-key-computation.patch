@@ -1,8 +1,7 @@
 From f9ad496629cc99686f0daeec26f8df3510aa2c76 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 14:43:38 +0200
-Subject: [PATCH 05/60] UPSTREAM: <carry>: storage: etcd cluster key
- computation
+Subject: [PATCH] UPSTREAM: <carry>: storage: etcd cluster key computation
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
@@ -225,5 +224,5 @@ index 000bb52497a..56acaed2eb9 100644
  	assignFn(objs)
  
 -- 
-2.53.0
+2.54.0
 

@@ -1,8 +1,7 @@
 From f8d31a9b4b5182b2d481ae5332b1a122f75b22fe Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Mon, 11 Sep 2023 21:37:51 +0200
-Subject: [PATCH 24/60] UPSTREAM: <carry>: controlplane: wire informers and
- clients
+Subject: [PATCH] UPSTREAM: <carry>: controlplane: wire informers and clients
 
 Co-authored-by: Marvin Beckers <marvin@kubermatic.com>
 Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
@@ -520,5 +519,5 @@ index a4afd533f18..58521c5fefa 100644
  			return nil, err
  		}
 -- 
-2.53.0
+2.54.0
 

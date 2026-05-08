@@ -1,8 +1,8 @@
 From 7a7fa4ae1dca35dfda7ef6f10b2abf78742485e6 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Wed, 10 Sep 2025 16:24:54 +0200
-Subject: [PATCH 46/60] UPSTREAM: <carry>: Add system:cluster:<cluster> group
- to effective users
+Subject: [PATCH] UPSTREAM: <carry>: Add system:cluster:<cluster> group to
+ effective users
 
 Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
 Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
@@ -346,5 +346,5 @@ index 4825a8a57dc..452cccf0154 100644
 +	}
 +}
 -- 
-2.53.0
+2.54.0
 

@@ -1,7 +1,7 @@
 From 9a044b59ee42a50a3639228b5f887edc3eac055a Mon Sep 17 00:00:00 2001
 From: Mangirdas Judeikis <mangirdas@judeikis.lt>
 Date: Mon, 8 Dec 2025 12:26:51 +0200
-Subject: [PATCH 55/60] UPSTREAM: <carry>: gc & quata patches applied
+Subject: [PATCH] UPSTREAM: <carry>: gc & quata patches applied
 
 ---
  .../garbagecollector/garbagecollector_kcp.go  | 107 ++++++++++++++++
@@ -248,5 +248,5 @@ index 00000000000..6b0aea53697
 +	}
 +}
 -- 
-2.53.0
+2.54.0
 

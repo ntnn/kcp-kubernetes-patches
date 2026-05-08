@@ -1,7 +1,7 @@
 From 48352008eac8045379d172e5ac138b208fa77255 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Mon, 4 Aug 2025 15:03:47 +0200
-Subject: [PATCH 40/60] UPSTREAM: <carry>: Drop validation-gen
+Subject: [PATCH] UPSTREAM: <carry>: Drop validation-gen
 
 In https://github.com/kubernetes/kubernetes/pull/130349 for KEP-5073
 validation-gen was added to `gen_helpers`.
@@ -35,5 +35,5 @@ index 95c28e1a36d..26938d0de84 100755
          # shellcheck disable=2046 # printf word-splitting is intentional
          GO111MODULE=on go install $(printf "k8s.io/code-generator/cmd/%s " "${BINS[@]}")
 -- 
-2.53.0
+2.54.0
 

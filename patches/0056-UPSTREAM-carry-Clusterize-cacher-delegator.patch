@@ -1,7 +1,7 @@
 From 5a5d5ab5569a8d990a350ee766fdbee3900bd1d1 Mon Sep 17 00:00:00 2001
 From: Mangirdas Judeikis <mangirdas@judeikis.lt>
 Date: Mon, 8 Dec 2025 15:09:56 +0200
-Subject: [PATCH 56/60] UPSTREAM: <carry>: Clusterize cacher delegator
+Subject: [PATCH] UPSTREAM: <carry>: Clusterize cacher delegator
 
 Signed-off-by: Mangirdas Judeikis <mangirdas@judeikis.lt>
 ---
@@ -29,5 +29,5 @@ index b08c1fd5a4e..9d7b1a91cac 100644
  	if err != nil {
  		klog.ErrorS(err, "Cache consistency check error", "group", c.groupResource.Group, "resource", c.groupResource.Resource)
 -- 
-2.53.0
+2.54.0
 

@@ -442,7 +442,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp_test.go b/
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
-@@ -733,7 +733,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+@@ -734,7 +734,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
  
  		// kcp: apply clusterName to the decoded object, as the name is not persisted in storage.
  		clusterName := adjustClusterNameIfWildcard(wc.shard, wc.cluster, wc.crdRequest, wc.key, e.key)
@@ -451,7 +451,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  		annotateDecodedObjectWith(curObj, clusterName, shardName)
  	}
  	// We need to decode prevValue, only if this is deletion event or
-@@ -755,7 +755,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+@@ -756,7 +756,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
  
  		// kcp: apply clusterName to the decoded object, as the name is not persisted in storage.
  		clusterName := adjustClusterNameIfWildcard(wc.shard, wc.cluster, wc.crdRequest, wc.key, e.key)

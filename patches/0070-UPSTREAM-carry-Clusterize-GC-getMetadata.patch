@@ -12,7 +12,7 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 diff --git a/pkg/controller/garbagecollector/patch.go b/pkg/controller/garbagecollector/patch.go
 --- a/pkg/controller/garbagecollector/patch.go
 +++ b/pkg/controller/garbagecollector/patch.go
-@@ -27,33 +27,34 @@ import (
+@@ -28,33 +28,34 @@ import (
  	"k8s.io/apimachinery/pkg/runtime"
  	"k8s.io/apimachinery/pkg/types"
  	"k8s.io/kubernetes/pkg/controller/garbagecollector/metaonly"
@@ -54,7 +54,7 @@ diff --git a/pkg/controller/garbagecollector/patch.go b/pkg/controller/garbageco
  	}
  	obj, ok := raw.(runtime.Object)
  	if !ok {
-@@ -106,7 +107,7 @@ func (gc *GarbageCollector) patch(item *node, smp []byte, jmp jsonMergePatchFunc
+@@ -107,7 +108,7 @@ func (gc *GarbageCollector) patch(item *node, smp []byte, jmp jsonMergePatchFunc
  
  // Returns JSON merge patch that removes the ownerReferences matching ownerUIDs.
  func (gc *GarbageCollector) deleteOwnerRefJSONMergePatch(item *node, ownerUIDs ...types.UID) ([]byte, error) {
@@ -63,7 +63,7 @@ diff --git a/pkg/controller/garbagecollector/patch.go b/pkg/controller/garbageco
  	if err != nil {
  		return nil, err
  	}
-@@ -149,7 +150,7 @@ func (n *node) unblockOwnerReferencesStrategicMergePatch() ([]byte, error) {
+@@ -143,7 +144,7 @@ func (n *node) unblockOwnerReferencesStrategicMergePatch() ([]byte, error) {
  // Generate a JSON merge patch that unsets the BlockOwnerDeletion field of all
  // ownerReferences of node.
  func (gc *GarbageCollector) unblockOwnerReferencesJSONMergePatch(n *node) ([]byte, error) {

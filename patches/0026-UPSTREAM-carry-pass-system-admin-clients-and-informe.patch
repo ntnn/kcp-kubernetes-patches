@@ -22,8 +22,8 @@ diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/c
 -	clientgoclientset "k8s.io/client-go/kubernetes"
  	"k8s.io/client-go/util/keyutil"
  	basecompatibility "k8s.io/component-base/compatibility"
- 	aggregatorapiserver "k8s.io/kube-aggregator/pkg/apiserver"
-@@ -156,12 +155,13 @@ func BuildGenericConfig(
+ 	metricsfeatures "k8s.io/component-base/metrics/features"
+@@ -157,12 +156,13 @@ func BuildGenericConfig(
  	kubeClientConfig := genericConfig.LoopbackClientConfig
  	clusterClient, err := kcpclient.NewForConfig(kubeClientConfig)
  	if err != nil {
@@ -39,7 +39,7 @@ diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/c
  		return
  	}
  	if lastErr = s.APIEnablement.ApplyTo(genericConfig, resourceConfig, legacyscheme.Scheme); lastErr != nil {
-@@ -368,7 +368,7 @@ func CreateConfig(
+@@ -373,7 +373,7 @@ func CreateConfig(
  	if err != nil {
  		return nil, nil, fmt.Errorf("failed to create admission plugin initializer: %w", err)
  	}
@@ -51,7 +51,7 @@ diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/c
 diff --git a/pkg/controlplane/apiserver/server.go b/pkg/controlplane/apiserver/server.go
 --- a/pkg/controlplane/apiserver/server.go
 +++ b/pkg/controlplane/apiserver/server.go
-@@ -203,6 +203,10 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+@@ -195,6 +195,10 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
  			c.Extra.PeerEndpointLeaseReconciler,
  			c.Extra.PeerEndpointReconcileInterval,
  			client.Cluster(LocalAdminCluster.Path()))
@@ -62,7 +62,7 @@ diff --git a/pkg/controlplane/apiserver/server.go b/pkg/controlplane/apiserver/s
  		s.GenericAPIServer.AddPostStartHookOrDie("peer-endpoint-reconciler-controller",
  			func(hookContext genericapiserver.PostStartHookContext) error {
  				peerEndpointCtrl.Start(hookContext.Done())
-@@ -250,6 +254,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+@@ -230,6 +234,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
  
  	s.GenericAPIServer.AddPostStartHookOrDie("start-cluster-authentication-info-controller", func(hookContext genericapiserver.PostStartHookContext) error {
  		controller := clusterauthenticationtrust.NewClusterAuthenticationTrustController(s.ClusterAuthenticationInfo, client.Cluster(LocalAdminCluster.Path()))

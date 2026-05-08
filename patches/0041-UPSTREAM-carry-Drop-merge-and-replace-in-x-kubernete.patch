@@ -13,7 +13,7 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/schema/kubeopenapi.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/schema/kubeopenapi.go
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/schema/kubeopenapi.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/schema/kubeopenapi.go
-@@ -84,18 +84,9 @@ func (x *Extensions) toKubeOpenAPI(ret *spec.Schema) {
+@@ -91,18 +91,9 @@ func (x *Extensions) toKubeOpenAPI(ret *spec.Schema) {
  	}
  	if x.XListType != nil {
  		ret.VendorExtensible.AddExtension("x-kubernetes-list-type", *x.XListType)

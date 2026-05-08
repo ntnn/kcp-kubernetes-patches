@@ -15,7 +15,7 @@ Signed-off-by: Marko Mudrinić <mudrinic.mare@gmail.com>
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 --- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
-@@ -1539,8 +1539,8 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
+@@ -1559,8 +1559,8 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
  	if (e.KeyRootFunc == nil) != (e.KeyFunc == nil) {
  		return fmt.Errorf("store for %s must set both KeyRootFunc and KeyFunc or neither", e.DefaultQualifiedResource.String())
  	}
@@ -37,7 +37,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/s
  	"github.com/kcp-dev/logicalcluster/v3"
  	"go.etcd.io/etcd/api/v3/mvccpb"
  	clientv3 "go.etcd.io/etcd/client/v3"
-@@ -1166,7 +1165,6 @@ func (s *store) decode(codec runtime.Codec, versioner storage.Versioner, value [
+@@ -1172,7 +1171,6 @@ func (s *store) decode(codec runtime.Codec, versioner storage.Versioner, value [
  	}
  	err := s.decoder.Decode(value, objPtr, rev)
  	if err != nil {

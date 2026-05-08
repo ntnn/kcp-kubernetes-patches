@@ -8,8 +8,8 @@ On-behalf-of: SAP robert.vasek@sap.com
 Signed-off-by: Robert Vasek <robert.vasek@clyso.com>
 ---
  .../pkg/admission/plugin/policy/mutating/accessor.go     | 9 +++++++++
- .../pkg/admission/plugin/policy/mutating/plugin.go       | 7 +++++--
- 2 files changed, 14 insertions(+), 2 deletions(-)
+ .../pkg/admission/plugin/policy/mutating/plugin.go       | 5 ++++-
+ 2 files changed, 13 insertions(+), 1 deletion(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/accessor.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/accessor.go
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/accessor.go
@@ -20,9 +20,9 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/a
  import (
 +	"github.com/kcp-dev/logicalcluster/v3"
  	v1 "k8s.io/api/admissionregistration/v1"
- 	"k8s.io/api/admissionregistration/v1beta1"
  	"k8s.io/apimachinery/pkg/types"
-@@ -47,6 +48,10 @@ func (v *mutatingAdmissionPolicyAccessor) GetName() string {
+ 	"k8s.io/apiserver/pkg/admission/plugin/policy/generic"
+@@ -46,6 +47,10 @@ func (v *mutatingAdmissionPolicyAccessor) GetName() string {
  	return v.Name
  }
  
@@ -33,7 +33,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/a
  func (v *mutatingAdmissionPolicyAccessor) GetParamKind() *v1.ParamKind {
  	pk := v.Spec.ParamKind
  	if pk == nil {
-@@ -86,6 +91,10 @@ func (v *mutatingAdmissionPolicyBindingAccessor) GetName() string {
+@@ -77,6 +82,10 @@ func (v *mutatingAdmissionPolicyBindingAccessor) GetName() string {
  	return v.Name
  }
  
@@ -47,29 +47,25 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/a
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/plugin.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/plugin.go
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/plugin.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/plugin.go
-@@ -18,9 +18,11 @@ package mutating
+@@ -22,6 +22,8 @@ import (
  
- import (
- 	"context"
--	celgo "github.com/google/cel-go/cel"
- 	"io"
+ 	celgo "github.com/google/cel-go/cel"
  
-+	celgo "github.com/google/cel-go/cel"
-+
 +	"github.com/kcp-dev/logicalcluster/v3"
- 	"k8s.io/api/admissionregistration/v1beta1"
++
+ 	v1 "k8s.io/api/admissionregistration/v1"
  	corev1 "k8s.io/api/core/v1"
  	"k8s.io/apimachinery/pkg/api/meta"
-@@ -94,7 +96,7 @@ func NewPlugin(_ io.Reader) *Plugin {
+@@ -133,7 +135,7 @@ func NewPlugin(configFile io.Reader) (*Plugin, error) {
  	res := &Plugin{}
  	res.Plugin = generic.NewPlugin(
  		handler,
 -		func(f informers.SharedInformerFactory, client kubernetes.Interface, dynamicClient dynamic.Interface, restMapper meta.RESTMapper) generic.Source[PolicyHook] {
 +		func(f informers.SharedInformerFactory, client kubernetes.Interface, dynamicClient dynamic.Interface, restMapper meta.RESTMapper, clusterName logicalcluster.Name) generic.Source[PolicyHook] {
  			return generic.NewPolicySource(
- 				f.Admissionregistration().V1beta1().MutatingAdmissionPolicies().Informer(),
- 				f.Admissionregistration().V1beta1().MutatingAdmissionPolicyBindings().Informer(),
-@@ -106,6 +108,7 @@ func NewPlugin(_ io.Reader) *Plugin {
+ 				f.Admissionregistration().V1().MutatingAdmissionPolicies().Informer(),
+ 				f.Admissionregistration().V1().MutatingAdmissionPolicyBindings().Informer(),
+@@ -145,6 +147,7 @@ func NewPlugin(configFile io.Reader) (*Plugin, error) {
  				f,
  				dynamicClient,
  				restMapper,

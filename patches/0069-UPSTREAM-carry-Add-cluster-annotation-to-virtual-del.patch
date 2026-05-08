@@ -13,7 +13,7 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 diff --git a/pkg/controller/garbagecollector/graph_builder.go b/pkg/controller/garbagecollector/graph_builder.go
 --- a/pkg/controller/garbagecollector/graph_builder.go
 +++ b/pkg/controller/garbagecollector/graph_builder.go
-@@ -42,6 +42,8 @@ import (
+@@ -43,6 +43,8 @@ import (
  	"k8s.io/controller-manager/pkg/informerfactory"
  	"k8s.io/kubernetes/pkg/controller/apis/config/scheme"
  	"k8s.io/kubernetes/pkg/controller/garbagecollector/metaonly"
@@ -22,7 +22,7 @@ diff --git a/pkg/controller/garbagecollector/graph_builder.go b/pkg/controller/g
  )
  
  type eventType int
-@@ -428,8 +430,10 @@ func (gb *GraphBuilder) enqueueVirtualDeleteEvent(ref objectReference) {
+@@ -429,8 +431,10 @@ func (gb *GraphBuilder) enqueueVirtualDeleteEvent(ref objectReference) {
  		eventType: deleteEvent,
  		gvk:       gv.WithKind(ref.Kind),
  		obj: &metaonly.MetadataOnlyObject{

@@ -16,7 +16,7 @@ Signed-off-by: Robert Vasek <robert.vasek@clyso.com>
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
-@@ -346,6 +346,9 @@ type Cacher struct {
+@@ -348,6 +348,9 @@ type Cacher struct {
  	// expiredBookmarkWatchers is a list of watchers that were expired and need to be schedule for a next bookmark event
  	expiredBookmarkWatchers []*cacheWatcher
  	compactor               *compactor
@@ -26,7 +26,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging
  }
  
  // NewCacherFromConfig creates a new Cacher responsible for servicing WATCH and LIST requests from
-@@ -449,6 +452,7 @@ func NewCacherFromConfig(config Config) (*Cacher, error) {
+@@ -451,6 +454,7 @@ func NewCacherFromConfig(config Config) (*Cacher, error) {
  	watchCache := newWatchCache(
  		config.KeyFunc, cacher.processEvent, config.GetAttrsFunc, config.Versioner, config.Indexers,
  		config.Clock, eventFreshDuration, config.GroupResource, progressRequester, config.Storage.GetCurrentResourceVersion)
@@ -37,7 +37,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
-@@ -35,11 +35,11 @@ import (
+@@ -35,12 +35,12 @@ import (
  	"k8s.io/apimachinery/pkg/util/wait"
  	"k8s.io/apimachinery/pkg/watch"
  	"k8s.io/apiserver/pkg/audit"
@@ -46,11 +46,12 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go b/stag
  	"k8s.io/apiserver/pkg/storage"
  	"k8s.io/apiserver/pkg/storage/cacher/delegator"
  	"k8s.io/apiserver/pkg/storage/cacher/metrics"
+ 	"k8s.io/apiserver/pkg/storage/cacher/store"
 +	"k8s.io/apiserver/pkg/storage/storagebackend"
  	utilfeature "k8s.io/apiserver/pkg/util/feature"
  	"k8s.io/component-base/tracing"
  	"k8s.io/klog/v2"
-@@ -66,7 +66,7 @@ func NewCacheDelegator(cacher *Cacher, storage storage.Interface) *CacheDelegato
+@@ -67,7 +67,7 @@ func NewCacheDelegator(cacher *Cacher, storage storage.Interface) *CacheDelegato
  		stopCh:  make(chan struct{}),
  	}
  	if utilfeature.DefaultFeatureGate.Enabled(features.DetectCacheInconsistency) || panicOnCacheInconsistency {
@@ -59,7 +60,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go b/stag
  		d.wg.Add(1)
  		go func() {
  			defer d.wg.Done()
-@@ -291,20 +291,22 @@ func (c *CacheDelegator) Stop() {
+@@ -288,20 +288,22 @@ func (c *CacheDelegator) Stop() {
  	c.wg.Wait()
  }
  
@@ -71,12 +72,12 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go b/stag
 -		newListFunc:    newListFunc,
 -		cacher:         cacher,
 -		etcd:           etcd,
-+		groupResource:       groupResource,
-+		resourcePrefix:      resourcePrefix,
-+		newListFunc:         newListFunc,
-+		cacher:              cacher,
-+		etcd:                etcd,
-+		kcpStorageMetadata:  kcpStorageMetadata,
++		groupResource:      groupResource,
++		resourcePrefix:     resourcePrefix,
++		newListFunc:        newListFunc,
++		cacher:             cacher,
++		etcd:               etcd,
++		kcpStorageMetadata: kcpStorageMetadata,
  	}
  }
  
@@ -91,7 +92,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go b/stag
  
  	cacher cacher
  	etcd   getLister
-@@ -333,7 +335,7 @@ func (c consistencyChecker) startChecking(stopCh <-chan struct{}) {
+@@ -330,7 +332,7 @@ func (c consistencyChecker) startChecking(stopCh <-chan struct{}) {
  }
  
  func (c *consistencyChecker) check(ctx context.Context) {

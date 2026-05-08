@@ -15,7 +15,7 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go b/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go
 --- a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go
-@@ -319,7 +319,7 @@ type DelegationTarget interface {
+@@ -323,7 +323,7 @@ type DelegationTarget interface {
  	HealthzChecks() []healthz.HealthChecker
  
  	// ListedPaths returns the paths for supporting an index
@@ -24,7 +24,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go b/stagi
  
  	// NextDelegate returns the next delegationTarget in the chain of delegations
  	NextDelegate() DelegationTarget
-@@ -349,8 +349,8 @@ func (s *GenericAPIServer) PreShutdownHooks() map[string]preShutdownHookEntry {
+@@ -353,8 +353,8 @@ func (s *GenericAPIServer) PreShutdownHooks() map[string]preShutdownHookEntry {
  func (s *GenericAPIServer) HealthzChecks() []healthz.HealthChecker {
  	return s.healthzRegistry.checks
  }
@@ -35,7 +35,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go b/stagi
  }
  
  func (s *GenericAPIServer) NextDelegate() DelegationTarget {
-@@ -416,7 +416,7 @@ func (s emptyDelegate) PreShutdownHooks() map[string]preShutdownHookEntry {
+@@ -420,7 +420,7 @@ func (s emptyDelegate) PreShutdownHooks() map[string]preShutdownHookEntry {
  func (s emptyDelegate) HealthzChecks() []healthz.HealthChecker {
  	return []healthz.HealthChecker{}
  }

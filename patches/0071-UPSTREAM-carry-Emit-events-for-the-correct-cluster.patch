@@ -89,7 +89,7 @@ diff --git a/pkg/controller/garbagecollector/garbagecollector.go b/pkg/controlle
 diff --git a/pkg/controller/garbagecollector/graph_builder.go b/pkg/controller/garbagecollector/graph_builder.go
 --- a/pkg/controller/garbagecollector/graph_builder.go
 +++ b/pkg/controller/garbagecollector/graph_builder.go
-@@ -43,6 +43,7 @@ import (
+@@ -44,6 +44,7 @@ import (
  	"k8s.io/kubernetes/pkg/controller/apis/config/scheme"
  	"k8s.io/kubernetes/pkg/controller/garbagecollector/metaonly"
  
@@ -97,7 +97,7 @@ diff --git a/pkg/controller/garbagecollector/graph_builder.go b/pkg/controller/g
  	"github.com/kcp-dev/logicalcluster/v3"
  )
  
-@@ -523,8 +524,12 @@ func (gb *GraphBuilder) reportInvalidNamespaceOwnerRef(n *node, invalidOwnerUID
+@@ -524,8 +525,12 @@ func (gb *GraphBuilder) reportInvalidNamespaceOwnerRef(n *node, invalidOwnerUID
  		Kind:       n.identity.Kind,
  		APIVersion: n.identity.APIVersion,
  		Namespace:  n.identity.Namespace,

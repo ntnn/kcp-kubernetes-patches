@@ -20,8 +20,8 @@ diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/opt
  	"github.com/spf13/pflag"
  
  	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-@@ -49,7 +51,6 @@ import (
- 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+@@ -50,7 +52,6 @@ import (
+ 	"k8s.io/apiserver/pkg/util/filesystem"
  	"k8s.io/apiserver/plugin/pkg/authenticator/token/oidc"
  	"k8s.io/client-go/informers"
 -	"k8s.io/client-go/kubernetes"

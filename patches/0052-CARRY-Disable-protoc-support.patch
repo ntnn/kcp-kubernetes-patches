@@ -27,7 +27,7 @@ diff --git a/hack/update-codegen.sh b/hack/update-codegen.sh
 diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/config.go
 --- a/pkg/controlplane/apiserver/config.go
 +++ b/pkg/controlplane/apiserver/config.go
-@@ -143,11 +143,6 @@ func BuildGenericConfig(
+@@ -144,11 +144,6 @@ func BuildGenericConfig(
  		return
  	}
  
@@ -63,7 +63,7 @@ diff --git a/staging/src/k8s.io/client-go/gentype/type.go b/staging/src/k8s.io/c
 diff --git a/staging/src/k8s.io/code-generator/kube_codegen.sh b/staging/src/k8s.io/code-generator/kube_codegen.sh
 --- a/staging/src/k8s.io/code-generator/kube_codegen.sh
 +++ b/staging/src/k8s.io/code-generator/kube_codegen.sh
-@@ -688,7 +688,6 @@ function kube::codegen::gen_client() {
+@@ -722,7 +722,6 @@ function kube::codegen::gen_client() {
          --apply-configuration-package "${applyconfig_pkg}" \
          --input-base "$(cd "${in_dir}" && pwd -P)" `# must be absolute path or Go import path"` \
          --plural-exceptions "${plural_exceptions}" \
@@ -74,7 +74,7 @@ diff --git a/staging/src/k8s.io/code-generator/kube_codegen.sh b/staging/src/k8s
 diff --git a/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh b/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh
 --- a/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh
 +++ b/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh
-@@ -52,5 +52,4 @@ kube::codegen::gen_client \
+@@ -54,5 +54,4 @@ kube::codegen::gen_client \
      --clientset-name "clientset_generated" \
      --versioned-name "clientset" \
      --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt" \

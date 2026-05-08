@@ -12,7 +12,7 @@ On-behalf-of: SAP mangirdas.judeikis@sap.com
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/config.go b/staging/src/k8s.io/apiserver/pkg/server/config.go
 --- a/staging/src/k8s.io/apiserver/pkg/server/config.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/config.go
-@@ -1010,16 +1010,24 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G
+@@ -1031,16 +1031,24 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G
  func BuildHandlerChainWithStorageVersionPrecondition(apiHandler http.Handler, c *Config) http.Handler {
  	// WithStorageVersionPrecondition needs the WithRequestInfo to run first
  	handler := genericapifilters.WithStorageVersionPrecondition(apiHandler, c.StorageVersionManager, c.Serializer)
@@ -41,7 +41,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/server/config.go b/staging/src/k8s
  	handler := apiHandler
  	handler = filterlatency.TrackCompleted(handler)
  	handler = genericapifilters.WithAuthorization(handler, c.Authorization.Authorizer, c.Serializer)
-@@ -1027,7 +1035,8 @@ func DefaultBuildHandlerChainFromAuthz(apiHandler http.Handler, c *Config) http.
+@@ -1048,7 +1056,8 @@ func DefaultBuildHandlerChainFromAuthz(apiHandler http.Handler, c *Config) http.
  	return handler
  }
  
@@ -51,7 +51,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/server/config.go b/staging/src/k8s
  	handler := apiHandler
  	if c.FlowControl != nil {
  		workEstimatorCfg := flowcontrolrequest.DefaultWorkEstimatorConfig()
-@@ -1049,6 +1058,12 @@ func DefaultBuildHandlerChainBeforeAuthz(apiHandler http.Handler, c *Config) htt
+@@ -1070,6 +1079,12 @@ func DefaultBuildHandlerChainBeforeAuthz(apiHandler http.Handler, c *Config) htt
  		handler = filterlatency.TrackStarted(handler, c.TracerProvider, "impersonation")
  	}
  

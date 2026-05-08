@@ -11,8 +11,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 ---
  cmd/kube-apiserver/app/config.go              |  5 +-
  cmd/kube-apiserver/app/server.go              |  8 ++--
- go.mod                                        |  1 +
- go.sum                                        |  2 +
  pkg/controlplane/apiserver/aggregator.go      |  3 +-
  pkg/controlplane/apiserver/apis.go            |  3 +-
  pkg/controlplane/apiserver/completion.go      |  3 +-
@@ -22,7 +20,7 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  pkg/kubeapiserver/options/authentication.go   |  3 +-
  pkg/registry/rbac/rest/storage_rbac.go        |  6 ++-
  .../src/k8s.io/apiserver/pkg/server/config.go |  5 +-
- 13 files changed, 78 insertions(+), 35 deletions(-)
+ 11 files changed, 75 insertions(+), 35 deletions(-)
 
 diff --git a/cmd/kube-apiserver/app/config.go b/cmd/kube-apiserver/app/config.go
 --- a/cmd/kube-apiserver/app/config.go
@@ -97,29 +95,6 @@ diff --git a/cmd/kube-apiserver/app/server.go b/cmd/kube-apiserver/app/server.go
  	if err != nil {
  		return nil, nil, nil, fmt.Errorf("error building service resolver: %w", err)
  	}
-diff --git a/go.mod b/go.mod
---- a/go.mod
-+++ b/go.mod
-@@ -173,6 +173,7 @@ require (
- 	github.com/josharian/intern v1.0.0 // indirect
- 	github.com/json-iterator/go v1.1.12 // indirect
- 	github.com/karrick/godirwalk v1.17.0 // indirect
-+	github.com/kcp-dev/logicalcluster/v3 v3.0.5 // indirect
- 	github.com/kylelemons/godebug v1.1.0 // indirect
- 	github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de // indirect
- 	github.com/mailru/easyjson v0.7.7 // indirect
-diff --git a/go.sum b/go.sum
---- a/go.sum
-+++ b/go.sum
-@@ -208,6 +208,8 @@ github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHm
- github.com/julienschmidt/httprouter v1.3.0/go.mod h1:JR6WtHb+2LUe8TCKY3cZOxFyyO8IZAc4RVcycCCAKdM=
- github.com/karrick/godirwalk v1.17.0 h1:b4kY7nqDdioR/6qnbHQyDvmA17u5G1cZ6J+CZXwSWoI=
- github.com/karrick/godirwalk v1.17.0/go.mod h1:j4mkqPuvaLI8mp1DroR3P6ad7cyYd4c1qeJ3RV7ULlk=
-+github.com/kcp-dev/logicalcluster/v3 v3.0.5 h1:JbYakokb+5Uinz09oTXomSUJVQsqfxEvU4RyHUYxHOU=
-+github.com/kcp-dev/logicalcluster/v3 v3.0.5/go.mod h1:EWBUBxdr49fUB1cLMO4nOdBWmYifLbP1LfoL20KkXYY=
- github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
- github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
- github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
 diff --git a/pkg/controlplane/apiserver/aggregator.go b/pkg/controlplane/apiserver/aggregator.go
 --- a/pkg/controlplane/apiserver/aggregator.go
 +++ b/pkg/controlplane/apiserver/aggregator.go
@@ -215,7 +190,7 @@ diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/c
  	clientgoinformers "k8s.io/client-go/informers"
  	clientgoclientset "k8s.io/client-go/kubernetes"
  	"k8s.io/client-go/util/keyutil"
-@@ -61,6 +67,10 @@ import (
+@@ -62,6 +68,10 @@ import (
  	"k8s.io/kubernetes/pkg/serviceaccount"
  )
  
@@ -226,7 +201,7 @@ diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/c
  // Config defines configuration for the master
  type Config struct {
  	Generic *genericapiserver.Config
-@@ -101,7 +111,7 @@ type Extra struct {
+@@ -102,7 +112,7 @@ type Extra struct {
  
  	SystemNamespaces []string
  
@@ -235,7 +210,7 @@ diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/c
  
  	// Coordinated Leader Election timers
  	CoordinatedLeadershipLeaseDuration time.Duration
-@@ -119,7 +129,7 @@ func BuildGenericConfig(
+@@ -120,7 +130,7 @@ func BuildGenericConfig(
  	getOpenAPIDefinitions func(ref openapicommon.ReferenceCallback) map[string]openapicommon.OpenAPIDefinition,
  ) (
  	genericConfig *genericapiserver.Config,
@@ -244,7 +219,7 @@ diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/c
  	storageFactory *serverstorage.DefaultStorageFactory,
  	lastErr error,
  ) {
-@@ -210,8 +220,24 @@ func BuildGenericConfig(
+@@ -211,8 +221,24 @@ func BuildGenericConfig(
  
  	ctx := wait.ContextForChannel(genericConfig.DrainedNotify())
  
@@ -270,7 +245,7 @@ diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/c
  		return
  	}
  
-@@ -221,7 +247,7 @@ func BuildGenericConfig(
+@@ -222,7 +248,7 @@ func BuildGenericConfig(
  		s,
  		genericConfig.EgressSelector,
  		genericConfig.APIServerID,
@@ -279,7 +254,7 @@ diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/c
  	)
  	if err != nil {
  		lastErr = fmt.Errorf("invalid authorization config: %w", err)
-@@ -277,7 +303,7 @@ func BuildAuthorizer(ctx context.Context, s options.CompletedOptions, egressSele
+@@ -278,7 +304,7 @@ func BuildAuthorizer(ctx context.Context, s options.CompletedOptions, egressSele
  func CreateConfig(
  	opts options.CompletedOptions,
  	genericConfig *genericapiserver.Config,
@@ -288,7 +263,7 @@ diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/c
  	storageFactory *serverstorage.DefaultStorageFactory,
  	serviceResolver aggregatorapiserver.ServiceResolver,
  	additionalInitializers []admission.PluginInitializer,
-@@ -321,7 +347,7 @@ func CreateConfig(
+@@ -323,7 +349,7 @@ func CreateConfig(
  			return nil, nil, err
  		}
  		if opts.PeerCAFile != "" {
@@ -297,16 +272,16 @@ diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/c
  			config.PeerProxy, err = BuildPeerProxy(
  				leaseInformer,
  				genericConfig.LoopbackClientConfig,
-@@ -358,7 +384,7 @@ func CreateConfig(
+@@ -362,7 +388,7 @@ func CreateConfig(
  
  	// setup admission
  	genericAdmissionConfig := controlplaneadmission.Config{
 -		ExternalInformers:    versionedInformers,
 +		ExternalInformers:    informerfactoryhack.Wrap(versionedInformers),
  		LoopbackClientConfig: genericConfig.LoopbackClientConfig,
+ 		APIResourceConfig:    storageFactory.APIResourceConfigSource,
  	}
- 	genericInitializers, err := genericAdmissionConfig.New(proxyTransport, genericConfig.EgressSelector, serviceResolver, genericConfig.TracerProvider)
-@@ -375,9 +401,9 @@ func CreateConfig(
+@@ -380,9 +406,9 @@ func CreateConfig(
  	}
  	err = opts.Admission.ApplyTo(
  		genericConfig,
@@ -338,15 +313,15 @@ diff --git a/pkg/controlplane/apiserver/server.go b/pkg/controlplane/apiserver/s
  	peerreconcilers "k8s.io/apiserver/pkg/reconcilers"
  	genericregistry "k8s.io/apiserver/pkg/registry/generic"
  	genericapiserver "k8s.io/apiserver/pkg/server"
-@@ -36,7 +39,6 @@ import (
+@@ -35,7 +38,6 @@ import (
  	serverstorage "k8s.io/apiserver/pkg/server/storage"
  	utilfeature "k8s.io/apiserver/pkg/util/feature"
  	clientgoinformers "k8s.io/client-go/informers"
 -	"k8s.io/client-go/kubernetes"
- 	zpagesfeatures "k8s.io/component-base/zpages/features"
  	"k8s.io/component-helpers/apimachinery/lease"
  	"k8s.io/klog/v2"
-@@ -135,7 +137,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+ 	"k8s.io/utils/clock"
+@@ -133,7 +135,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
  		APIResourceConfigSource:   c.APIResourceConfigSource,
  		RESTOptionsGetter:         c.Generic.RESTOptionsGetter,
  		ClusterAuthenticationInfo: c.ClusterAuthenticationInfo,
@@ -355,7 +330,7 @@ diff --git a/pkg/controlplane/apiserver/server.go b/pkg/controlplane/apiserver/s
  	}
  
  	client, err := kubernetes.NewForConfig(s.GenericAPIServer.LoopbackClientConfig)
-@@ -144,7 +146,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+@@ -142,7 +144,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
  	}
  	if len(c.SystemNamespaces) > 0 {
  		s.GenericAPIServer.AddPostStartHookOrDie("start-system-namespaces-controller", func(hookContext genericapiserver.PostStartHookContext) error {
@@ -364,7 +339,7 @@ diff --git a/pkg/controlplane/apiserver/server.go b/pkg/controlplane/apiserver/s
  			return nil
  		})
  	}
-@@ -172,11 +174,11 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+@@ -164,11 +166,11 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
  				controller, err := leaderelection.NewController(
  					leaseInformer,
  					lcInformer,
@@ -379,7 +354,7 @@ diff --git a/pkg/controlplane/apiserver/server.go b/pkg/controlplane/apiserver/s
  					LeaseCandidateGCPeriod,
  					lcInformer,
  				)
-@@ -200,7 +202,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+@@ -192,7 +194,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
  			peeraddress,
  			c.Extra.PeerEndpointLeaseReconciler,
  			c.Extra.PeerEndpointReconcileInterval,
@@ -388,7 +363,7 @@ diff --git a/pkg/controlplane/apiserver/server.go b/pkg/controlplane/apiserver/s
  		s.GenericAPIServer.AddPostStartHookOrDie("peer-endpoint-reconciler-controller",
  			func(hookContext genericapiserver.PostStartHookContext) error {
  				peerEndpointCtrl.Start(hookContext.Done())
-@@ -247,7 +249,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+@@ -227,7 +229,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
  	}
  
  	s.GenericAPIServer.AddPostStartHookOrDie("start-cluster-authentication-info-controller", func(hookContext genericapiserver.PostStartHookContext) error {
@@ -397,7 +372,7 @@ diff --git a/pkg/controlplane/apiserver/server.go b/pkg/controlplane/apiserver/s
  		// prime values and start listeners
  		if s.ClusterAuthenticationInfo.ClientCA != nil {
  			s.ClusterAuthenticationInfo.ClientCA.AddListener(controller)
-@@ -282,7 +284,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+@@ -262,7 +264,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
  		// must replace ':,[]' in [ip:port] to be able to store this as a valid label value
  		controller := lease.NewController(
  			clock.RealClock{},
@@ -406,7 +381,7 @@ diff --git a/pkg/controlplane/apiserver/server.go b/pkg/controlplane/apiserver/s
  			holderIdentity,
  			int32(IdentityLeaseDurationSeconds),
  			nil,
-@@ -303,7 +305,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+@@ -283,7 +285,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
  		// TODO: move this into generic apiserver and make the lease identity value configurable
  		s.GenericAPIServer.AddPostStartHookOrDie("start-kube-apiserver-identity-lease-garbage-collector", func(hookContext genericapiserver.PostStartHookContext) error {
  			go apiserverleasegc.NewAPIServerLeaseGC(
@@ -415,7 +390,7 @@ diff --git a/pkg/controlplane/apiserver/server.go b/pkg/controlplane/apiserver/s
  				IdentityLeaseGCPeriod,
  				metav1.NamespaceSystem,
  				IdentityLeaseComponentLabelKey+"="+name,
-@@ -317,7 +319,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+@@ -297,7 +299,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
  	}
  
  	s.GenericAPIServer.AddPostStartHookOrDie("start-legacy-token-tracking-controller", func(hookContext genericapiserver.PostStartHookContext) error {
@@ -479,7 +454,7 @@ diff --git a/pkg/registry/rbac/rest/storage_rbac.go b/pkg/registry/rbac/rest/sto
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/config.go b/staging/src/k8s.io/apiserver/pkg/server/config.go
 --- a/staging/src/k8s.io/apiserver/pkg/server/config.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/config.go
-@@ -35,6 +35,7 @@ import (
+@@ -36,6 +36,7 @@ import (
  	"github.com/google/uuid"
  	"golang.org/x/crypto/cryptobyte"
  	jsonpatch "gopkg.in/evanphx/json-patch.v4"
@@ -487,7 +462,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/server/config.go b/staging/src/k8s
  
  	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
  	"k8s.io/apimachinery/pkg/runtime"
-@@ -904,7 +905,7 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G
+@@ -925,7 +926,7 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G
  	if c.SharedInformerFactory != nil {
  		if !s.isPostStartHookRegistered(genericApiServerHookName) {
  			err := s.AddPostStartHook(genericApiServerHookName, func(hookContext PostStartHookContext) error {
@@ -496,7 +471,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/server/config.go b/staging/src/k8s
  				return nil
  			})
  			if err != nil {
-@@ -912,7 +913,7 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G
+@@ -933,7 +934,7 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G
  			}
  		}
  		// TODO: Once we get rid of /healthz consider changing this to post-start-hook.

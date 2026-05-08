@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Wed, 6 May 2026 15:23:06 +0200
+Subject: [PATCH] CARRY: <upstream>: Update to v1.36.0
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../k8s.io/apiserver/pkg/clientsethack/adapter.go  | 14 ++------------
+ 1 file changed, 2 insertions(+), 12 deletions(-)
+
+diff --git a/staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go b/staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go
+--- a/staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go
++++ b/staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go
+@@ -37,8 +37,6 @@ import (
+ 	authorizationv1beta1 "k8s.io/client-go/kubernetes/typed/authorization/v1beta1"
+ 	autoscalingv1 "k8s.io/client-go/kubernetes/typed/autoscaling/v1"
+ 	autoscalingv2 "k8s.io/client-go/kubernetes/typed/autoscaling/v2"
+-	autoscalingv2beta1 "k8s.io/client-go/kubernetes/typed/autoscaling/v2beta1"
+-	autoscalingv2beta2 "k8s.io/client-go/kubernetes/typed/autoscaling/v2beta2"
+ 	batchv1 "k8s.io/client-go/kubernetes/typed/batch/v1"
+ 	batchv1beta1 "k8s.io/client-go/kubernetes/typed/batch/v1beta1"
+ 	certificatesv1 "k8s.io/client-go/kubernetes/typed/certificates/v1"
+@@ -72,7 +70,7 @@ import (
+ 	resourcev1beta1 "k8s.io/client-go/kubernetes/typed/resource/v1beta1"
+ 	resourcev1beta2 "k8s.io/client-go/kubernetes/typed/resource/v1beta2"
+ 	schedulingv1 "k8s.io/client-go/kubernetes/typed/scheduling/v1"
+-	schedulingv1alpha1 "k8s.io/client-go/kubernetes/typed/scheduling/v1alpha1"
++	schedulingv1alpha2 "k8s.io/client-go/kubernetes/typed/scheduling/v1alpha2"
+ 	schedulingv1beta1 "k8s.io/client-go/kubernetes/typed/scheduling/v1beta1"
+ 	storagev1 "k8s.io/client-go/kubernetes/typed/storage/v1"
+ 	storagev1alpha1 "k8s.io/client-go/kubernetes/typed/storage/v1alpha1"
+@@ -176,14 +174,6 @@ func (h *hack) AutoscalingV2() autoscalingv2.AutoscalingV2Interface {
+ 	panic("programmer error: using a cluster-unaware clientset, need to cast this to use the cluster-aware one!")
+ }
+ 
+-func (h *hack) AutoscalingV2beta1() autoscalingv2beta1.AutoscalingV2beta1Interface {
+-	panic("programmer error: using a cluster-unaware clientset, need to cast this to use the cluster-aware one!")
+-}
+-
+-func (h *hack) AutoscalingV2beta2() autoscalingv2beta2.AutoscalingV2beta2Interface {
+-	panic("programmer error: using a cluster-unaware clientset, need to cast this to use the cluster-aware one!")
+-}
+-
+ func (h *hack) BatchV1() batchv1.BatchV1Interface {
+ 	panic("programmer error: using a cluster-unaware clientset, need to cast this to use the cluster-aware one!")
+ }
+@@ -296,7 +286,7 @@ func (h *hack) RbacV1alpha1() rbacv1alpha1.RbacV1alpha1Interface {
+ 	panic("programmer error: using a cluster-unaware clientset, need to cast this to use the cluster-aware one!")
+ }
+ 
+-func (h *hack) SchedulingV1alpha1() schedulingv1alpha1.SchedulingV1alpha1Interface {
++func (h *hack) SchedulingV1alpha2() schedulingv1alpha2.SchedulingV1alpha2Interface {
+ 	panic("programmer error: using a cluster-unaware clientset, need to cast this to use the cluster-aware one!")
+ }
+ 

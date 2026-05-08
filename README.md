@@ -235,7 +235,9 @@ git add . && git commit -m 'CARRY: <drop>: codegen'
 
 ## Updating kcp
 
-Go into kcp, ensure `GOWORK` is set and run the code generation:
+Go into kcp, ensure `GOWORK` is set, update `k8s.io/kubernetes` to the
+targeted tag and run `go work sync` to update the go.mod/go.sum files.
+Then run the code generation:
 
 ```bash
 cd kcp

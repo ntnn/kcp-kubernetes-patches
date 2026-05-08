@@ -275,17 +275,9 @@ Once all patches apply cleanly on the new base tag, re-export them to update
 the patch files:
 
 ```bash
-rm ../patches/*.patch
-git format-patch <tag>..HEAD -o ../patches/
+./hack/format-kube-patches.bash "$KUBE_TAG"
 ```
 
+TODO: export before rebase as well
+
 Commit the updated patches in this repository.
-
-## Patch conventions
-
-Commit messages follow the kcp/OpenShift carry convention:
-
-- `UPSTREAM: <carry>: <description>` — kcp-specific modification carried across rebases
-- `UPSTREAM: <fixup>: <description>` — fixup for a previous carry patch
-- `CARRY: <description>` — kcp-specific change not intended for upstream
-- `UPSTREAM: <PR number>: <description>` — backport of or reference to an upstream PR

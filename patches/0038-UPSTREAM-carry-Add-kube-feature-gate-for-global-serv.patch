@@ -1,4 +1,4 @@
-From a114d4bd5e34af5f2c473fa121cd607c51cf7ab0 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Karol Szwaj <karol.szwaj@gmail.com>
 Date: Thu, 13 Mar 2025 11:08:06 +0100
 Subject: [PATCH] UPSTREAM: <carry>: Add kube feature gate for global service
@@ -16,7 +16,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  2 files changed, 7 insertions(+), 1 deletion(-)
 
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index a7703d3ca33..6ab1a3419a5 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
 @@ -2155,6 +2155,9 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
@@ -30,7 +29,6 @@ index a7703d3ca33..6ab1a3419a5 100644
  
  // defaultKubernetesFeatureGateDependencies enumerates the dependencies of any feature gate that
 diff --git a/pkg/registry/rbac/validation/kcp.go b/pkg/registry/rbac/validation/kcp.go
-index b31c2e7f3a9..967f671c90b 100644
 --- a/pkg/registry/rbac/validation/kcp.go
 +++ b/pkg/registry/rbac/validation/kcp.go
 @@ -12,6 +12,8 @@ import (
@@ -59,6 +57,3 @@ index b31c2e7f3a9..967f671c90b 100644
  			if clusters := u.GetExtra()[authserviceaccount.ClusterNameKey]; len(clusters) == 1 {
  				nsNameSuffix := strings.TrimPrefix(u.GetName(), "system:serviceaccount:")
  				rewritten := &user.DefaultInfo{
--- 
-2.54.0
-

@@ -1,4 +1,4 @@
-From da4b84a77d8def993aafd6716efd637e78062a24 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Thu, 28 Aug 2025 07:44:54 +0200
 Subject: [PATCH] UPSTREAM: <carry>: Rename
@@ -12,7 +12,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  2 files changed, 21 insertions(+), 21 deletions(-)
 
 diff --git a/pkg/registry/rbac/validation/kcp_test.go b/pkg/registry/rbac/validation/kcp_test.go
-index 7eaf73c2005..5ee4113a84d 100644
 --- a/pkg/registry/rbac/validation/kcp_test.go
 +++ b/pkg/registry/rbac/validation/kcp_test.go
 @@ -89,13 +89,13 @@ func TestIsInScope(t *testing.T) {
@@ -155,7 +154,6 @@ index 7eaf73c2005..5ee4113a84d 100644
  			want: true,
  		},
 diff --git a/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go b/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go
-index be196f4055a..9bcdbd4d8e3 100644
 --- a/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go
 +++ b/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go
 @@ -51,7 +51,7 @@ const (
@@ -167,6 +165,3 @@ index be196f4055a..9bcdbd4d8e3 100644
  )
  
  // MakeUsername generates a username from the given namespace and ServiceAccount name.
--- 
-2.54.0
-

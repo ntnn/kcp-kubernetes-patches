@@ -1,4 +1,4 @@
-From 6635d84a473c827fd150031b214977099ad5530a Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Mangirdas Judeikis <mangirdas@judeikis.lt>
 Date: Mon, 8 Dec 2025 11:23:02 +0200
 Subject: [PATCH] CARRY: Disable protoc support
@@ -14,7 +14,6 @@ Subject: [PATCH] CARRY: Disable protoc support
  7 files changed, 1 insertion(+), 11 deletions(-)
 
 diff --git a/hack/update-codegen.sh b/hack/update-codegen.sh
-index e9d3974858d..39aa4a9958e 100755
 --- a/hack/update-codegen.sh
 +++ b/hack/update-codegen.sh
 @@ -798,7 +798,6 @@ function codegen::clients() {
@@ -26,7 +25,6 @@ index e9d3974858d..39aa4a9958e 100755
          "$@"
  
 diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/config.go
-index ec657ce8a34..37b8e0c095c 100644
 --- a/pkg/controlplane/apiserver/config.go
 +++ b/pkg/controlplane/apiserver/config.go
 @@ -143,11 +143,6 @@ func BuildGenericConfig(
@@ -42,7 +40,6 @@ index ec657ce8a34..37b8e0c095c 100644
  	// on a fast local network
  	genericConfig.LoopbackClientConfig.DisableCompression = true
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/hack/update-codegen.sh b/staging/src/k8s.io/apiextensions-apiserver/hack/update-codegen.sh
-index c60bcdefd7e..b09af435adb 100755
 --- a/staging/src/k8s.io/apiextensions-apiserver/hack/update-codegen.sh
 +++ b/staging/src/k8s.io/apiextensions-apiserver/hack/update-codegen.sh
 @@ -53,5 +53,4 @@ kube::codegen::gen_client \
@@ -52,7 +49,6 @@ index c60bcdefd7e..b09af435adb 100755
 -    --prefers-protobuf \
      "${SCRIPT_ROOT}/pkg/apis"
 diff --git a/staging/src/k8s.io/client-go/gentype/type.go b/staging/src/k8s.io/client-go/gentype/type.go
-index e91941d4a5b..86f8484b4fb 100644
 --- a/staging/src/k8s.io/client-go/gentype/type.go
 +++ b/staging/src/k8s.io/client-go/gentype/type.go
 @@ -84,7 +84,7 @@ type alsoApplier[T objectWithMeta, C namedObject] struct {
@@ -65,7 +61,6 @@ index e91941d4a5b..86f8484b4fb 100644
  
  // NewClient constructs a client, namespaced or not, with no support for lists or apply.
 diff --git a/staging/src/k8s.io/code-generator/kube_codegen.sh b/staging/src/k8s.io/code-generator/kube_codegen.sh
-index 26938d0de84..0a7f4ad99f9 100755
 --- a/staging/src/k8s.io/code-generator/kube_codegen.sh
 +++ b/staging/src/k8s.io/code-generator/kube_codegen.sh
 @@ -688,7 +688,6 @@ function kube::codegen::gen_client() {
@@ -77,7 +72,6 @@ index 26938d0de84..0a7f4ad99f9 100755
  
      if [ "${watchable}" == "true" ]; then
 diff --git a/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh b/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh
-index ff703db8c9c..bd04d902292 100755
 --- a/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh
 +++ b/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh
 @@ -52,5 +52,4 @@ kube::codegen::gen_client \
@@ -87,7 +81,6 @@ index ff703db8c9c..bd04d902292 100755
 -    --prefers-protobuf \
      "${SCRIPT_ROOT}/pkg/apis"
 diff --git a/staging/src/k8s.io/metrics/hack/update-codegen.sh b/staging/src/k8s.io/metrics/hack/update-codegen.sh
-index 23e4e3ee241..465169dc2bd 100755
 --- a/staging/src/k8s.io/metrics/hack/update-codegen.sh
 +++ b/staging/src/k8s.io/metrics/hack/update-codegen.sh
 @@ -36,5 +36,4 @@ kube::codegen::gen_client \
@@ -96,6 +89,3 @@ index 23e4e3ee241..465169dc2bd 100755
      --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt" \
 -    --prefers-protobuf \
      "${SCRIPT_ROOT}/pkg/apis"
--- 
-2.54.0
-

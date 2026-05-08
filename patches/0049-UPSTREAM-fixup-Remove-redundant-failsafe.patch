@@ -1,4 +1,4 @@
-From a0968afed5d3647509423aa36d02e5bcc4b2d83d Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Tue, 30 Sep 2025 09:57:21 +0200
 Subject: [PATCH] UPSTREAM: <fixup>: Remove redundant failsafe
@@ -10,7 +10,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  1 file changed, 10 deletions(-)
 
 diff --git a/pkg/registry/rbac/validation/kcp.go b/pkg/registry/rbac/validation/kcp.go
-index 4766fb7b5f5..276be077ead 100644
 --- a/pkg/registry/rbac/validation/kcp.go
 +++ b/pkg/registry/rbac/validation/kcp.go
 @@ -170,16 +170,6 @@ func EffectiveUsers(clusterName logicalcluster.Name, u user.Info) []user.Info {
@@ -30,6 +29,3 @@ index 4766fb7b5f5..276be077ead 100644
  		for _, v := range u.GetExtra()[WarrantExtraKey] {
  			var w Warrant
  			if err := json.Unmarshal([]byte(v), &w); err != nil {
--- 
-2.54.0
-

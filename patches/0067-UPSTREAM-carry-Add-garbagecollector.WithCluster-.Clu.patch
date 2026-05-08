@@ -1,4 +1,4 @@
-From 4fc637d42092ad181d91f37ed3279328abc51798 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Sun, 12 Apr 2026 00:51:33 +0200
 Subject: [PATCH] UPSTREAM: <carry>: Add
@@ -13,7 +13,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 
 diff --git a/pkg/controller/garbagecollector/kcp.go b/pkg/controller/garbagecollector/kcp.go
 new file mode 100644
-index 00000000000..4f9c269fdc9
 --- /dev/null
 +++ b/pkg/controller/garbagecollector/kcp.go
 @@ -0,0 +1,34 @@
@@ -51,6 +50,3 @@ index 00000000000..4f9c269fdc9
 +	v, _ := ctx.Value(clusterContextKey{}).(logicalcluster.Name)
 +	return v
 +}
--- 
-2.54.0
-

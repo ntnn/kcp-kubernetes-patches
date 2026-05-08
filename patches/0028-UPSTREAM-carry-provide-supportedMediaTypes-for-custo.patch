@@ -1,4 +1,4 @@
-From 456cd095049ff1b78e1cf1eb31a8a5703aaee362 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Marvin Beckers <marvin@kubermatic.com>
 Date: Fri, 21 Jun 2024 14:38:27 +0200
 Subject: [PATCH] UPSTREAM: <carry>: provide supportedMediaTypes for custom
@@ -10,7 +10,6 @@ Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
  1 file changed, 31 insertions(+)
 
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_kcp.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_kcp.go
-index 2f7e57e0c96..c0b7908fa3e 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_kcp.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_kcp.go
 @@ -20,6 +20,7 @@ import (
@@ -58,6 +57,3 @@ index 2f7e57e0c96..c0b7908fa3e 100644
  	}
  }
  
--- 
-2.54.0
-

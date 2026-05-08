@@ -1,4 +1,4 @@
-From f9ad496629cc99686f0daeec26f8df3510aa2c76 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 14:43:38 +0200
 Subject: [PATCH] UPSTREAM: <carry>: storage: etcd cluster key computation
@@ -10,7 +10,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
  2 files changed, 47 insertions(+), 17 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
-index 722a312270a..30b714b0090 100644
 --- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 @@ -263,10 +263,25 @@ const (
@@ -112,7 +111,6 @@ index 722a312270a..30b714b0090 100644
  			e.KeyFunc = func(ctx context.Context, name string) (string, error) {
  				return NoNamespaceKeyFunc(ctx, prefix, name)
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/rest/resttest/resttest.go b/staging/src/k8s.io/apiserver/pkg/registry/rest/resttest/resttest.go
-index 000bb52497a..56acaed2eb9 100644
 --- a/staging/src/k8s.io/apiserver/pkg/registry/rest/resttest/resttest.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/rest/resttest/resttest.go
 @@ -25,6 +25,7 @@ import (
@@ -223,6 +221,3 @@ index 000bb52497a..56acaed2eb9 100644
  
  	assignFn(objs)
  
--- 
-2.54.0
-

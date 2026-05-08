@@ -1,4 +1,4 @@
-From f686c918120feedc616c0c4b7dc41918d6b741f5 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Marvin Beckers <marvin@kubermatic.com>
 Date: Tue, 23 Jul 2024 12:35:01 +0200
 Subject: [PATCH] UPSTREAM: <CARRY>: clusterize validatingadmissionpolicystatus
@@ -10,7 +10,6 @@ Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
  1 file changed, 32 insertions(+), 13 deletions(-)
 
 diff --git a/pkg/controller/validatingadmissionpolicystatus/controller.go b/pkg/controller/validatingadmissionpolicystatus/controller.go
-index 11778e7feef..f6a305405c9 100644
 --- a/pkg/controller/validatingadmissionpolicystatus/controller.go
 +++ b/pkg/controller/validatingadmissionpolicystatus/controller.go
 @@ -29,10 +29,13 @@ import (
@@ -119,6 +118,3 @@ index 11778e7feef..f6a305405c9 100644
 +	_, err = c.policyClient.Cluster(cluster.Path()).ApplyStatus(ctx, applyConfig, metav1.ApplyOptions{FieldManager: ControllerName, Force: true})
  	return err
  }
--- 
-2.54.0
-

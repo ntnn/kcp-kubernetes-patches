@@ -1,4 +1,4 @@
-From 9a044b59ee42a50a3639228b5f887edc3eac055a Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Mangirdas Judeikis <mangirdas@judeikis.lt>
 Date: Mon, 8 Dec 2025 12:26:51 +0200
 Subject: [PATCH] UPSTREAM: <carry>: gc & quata patches applied
@@ -12,7 +12,6 @@ Subject: [PATCH] UPSTREAM: <carry>: gc & quata patches applied
 
 diff --git a/pkg/controller/garbagecollector/garbagecollector_kcp.go b/pkg/controller/garbagecollector/garbagecollector_kcp.go
 new file mode 100644
-index 00000000000..dea5b7b0624
 --- /dev/null
 +++ b/pkg/controller/garbagecollector/garbagecollector_kcp.go
 @@ -0,0 +1,107 @@
@@ -125,7 +124,6 @@ index 00000000000..dea5b7b0624
 +}
 diff --git a/pkg/controller/resourcequota/resource_quota_controller_kcp.go b/pkg/controller/resourcequota/resource_quota_controller_kcp.go
 new file mode 100644
-index 00000000000..6b0aea53697
 --- /dev/null
 +++ b/pkg/controller/resourcequota/resource_quota_controller_kcp.go
 @@ -0,0 +1,118 @@
@@ -247,6 +245,3 @@ index 00000000000..6b0aea53697
 +		rq.addQuota(logger, quota)
 +	}
 +}
--- 
-2.54.0
-

@@ -1,4 +1,4 @@
-From 6ea2ba269916fdb63573b391c01abdc7febac521 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 13:55:13 +0200
 Subject: [PATCH] UPSTREAM: <carry>: storage: add UseResourceAsPrefixDefault
@@ -10,7 +10,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
  1 file changed, 15 insertions(+), 1 deletion(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/storage/storage_factory.go b/staging/src/k8s.io/apiserver/pkg/server/storage/storage_factory.go
-index f4ccc62f65c..1059388ef02 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/storage/storage_factory.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/storage/storage_factory.go
 @@ -71,6 +71,10 @@ type DefaultStorageFactory struct {
@@ -44,6 +43,3 @@ index f4ccc62f65c..1059388ef02 100644
 +
  	return etcdResourcePrefix
  }
--- 
-2.54.0
-

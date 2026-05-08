@@ -1,4 +1,4 @@
-From 1e8b3854093a3dfedc008c7365a9368dcf7f8c52 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Sun, 12 Apr 2026 00:07:03 +0200
 Subject: [PATCH] UPSTREAM: <carry>: Clusterize GC objectReference
@@ -12,7 +12,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  3 files changed, 15 insertions(+), 7 deletions(-)
 
 diff --git a/pkg/controller/garbagecollector/garbagecollector.go b/pkg/controller/garbagecollector/garbagecollector.go
-index bea3f2c66f5..b04cab5c588 100644
 --- a/pkg/controller/garbagecollector/garbagecollector.go
 +++ b/pkg/controller/garbagecollector/garbagecollector.go
 @@ -385,7 +385,7 @@ func (gc *GarbageCollector) isDangling(ctx context.Context, reference metav1.Own
@@ -34,7 +33,6 @@ index bea3f2c66f5..b04cab5c588 100644
  	case errors.IsNotFound(err):
  		gc.absentOwnerCache.Add(absentOwnerCacheKey)
 diff --git a/pkg/controller/garbagecollector/graph.go b/pkg/controller/garbagecollector/graph.go
-index 77715309729..497290bb944 100644
 --- a/pkg/controller/garbagecollector/graph.go
 +++ b/pkg/controller/garbagecollector/graph.go
 @@ -24,29 +24,34 @@ import (
@@ -78,7 +76,6 @@ index 77715309729..497290bb944 100644
  		UID:        s.UID,
  	}
 diff --git a/pkg/controller/garbagecollector/graph_builder.go b/pkg/controller/garbagecollector/graph_builder.go
-index 9b3b7fc4844..38925c73f60 100644
 --- a/pkg/controller/garbagecollector/graph_builder.go
 +++ b/pkg/controller/garbagecollector/graph_builder.go
 @@ -452,6 +452,7 @@ func (gb *GraphBuilder) addDependentToOwners(logger klog.Logger, n *node, owners
@@ -105,6 +102,3 @@ index 9b3b7fc4844..38925c73f60 100644
  	}
  }
  
--- 
-2.54.0
-

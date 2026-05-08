@@ -1,4 +1,4 @@
-From d5e1817ed49e0feae3b1ae7d5fe2c8f3e2efc9e9 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 09:16:28 +0200
 Subject: [PATCH] UPSTREAM: <carry>: controlplane/apiserver: add miniaggregator
@@ -11,7 +11,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 
 diff --git a/pkg/controlplane/apiserver/miniaggregator/aggregator_kcp.go b/pkg/controlplane/apiserver/miniaggregator/aggregator_kcp.go
 new file mode 100644
-index 00000000000..1061f02e92b
 --- /dev/null
 +++ b/pkg/controlplane/apiserver/miniaggregator/aggregator_kcp.go
 @@ -0,0 +1,231 @@
@@ -246,6 +245,3 @@ index 00000000000..1061f02e92b
 +	}
 +	sph.handler[0].ServeHTTP(res, req)
 +}
--- 
-2.54.0
-

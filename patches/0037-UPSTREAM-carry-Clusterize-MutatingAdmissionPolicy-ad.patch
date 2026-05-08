@@ -1,4 +1,4 @@
-From d13d40584817f5f42f42a94a603d782318d3b75e Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Robert Vasek <rvasek01@gmail.com>
 Date: Thu, 23 Jan 2025 12:09:33 +0100
 Subject: [PATCH] UPSTREAM: <carry>: Clusterize MutatingAdmissionPolicy
@@ -12,7 +12,6 @@ Signed-off-by: Robert Vasek <robert.vasek@clyso.com>
  2 files changed, 14 insertions(+), 2 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/accessor.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/accessor.go
-index ff342623a95..471223295e3 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/accessor.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/accessor.go
 @@ -17,6 +17,7 @@ limitations under the License.
@@ -46,7 +45,6 @@ index ff342623a95..471223295e3 100644
  	return types.NamespacedName{
  		Namespace: "",
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/plugin.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/plugin.go
-index 20e4d2d0c47..7e366bca46e 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/plugin.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/plugin.go
 @@ -18,9 +18,11 @@ package mutating
@@ -79,6 +77,3 @@ index 20e4d2d0c47..7e366bca46e 100644
  			)
  		},
  		func(a authorizer.Authorizer, m *matching.Matcher, client kubernetes.Interface) generic.Dispatcher[PolicyHook] {
--- 
-2.54.0
-

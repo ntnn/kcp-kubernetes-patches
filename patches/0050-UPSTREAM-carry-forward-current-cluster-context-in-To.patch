@@ -1,4 +1,4 @@
-From 06910e70ce14e50538cb375d889b6786e517602e Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Christoph Mewes <christoph@kubermatic.com>
 Date: Thu, 2 Oct 2025 20:47:46 +0200
 Subject: [PATCH] UPSTREAM: <carry>: forward current cluster context in
@@ -10,7 +10,6 @@ On-behalf-of: @SAP christoph.mewes@sap.com
  1 file changed, 9 insertions(+)
 
 diff --git a/pkg/registry/authentication/tokenreview/storage.go b/pkg/registry/authentication/tokenreview/storage.go
-index 1c9c328603f..989e2daa2a7 100644
 --- a/pkg/registry/authentication/tokenreview/storage.go
 +++ b/pkg/registry/authentication/tokenreview/storage.go
 @@ -94,6 +94,15 @@ func (r *REST) Create(ctx context.Context, obj runtime.Object, createValidation
@@ -29,6 +28,3 @@ index 1c9c328603f..989e2daa2a7 100644
  	auds := tokenReview.Spec.Audiences
  	if len(auds) == 0 {
  		auds = r.apiAudiences
--- 
-2.54.0
-

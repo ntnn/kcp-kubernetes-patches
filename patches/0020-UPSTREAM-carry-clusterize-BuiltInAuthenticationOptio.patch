@@ -1,4 +1,4 @@
-From df84c110546ecfdb605138695e0a356f14dafc58 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 15:34:14 +0200
 Subject: [PATCH] UPSTREAM: <carry>: clusterize BuiltInAuthenticationOptions
@@ -9,7 +9,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
  1 file changed, 6 insertions(+), 5 deletions(-)
 
 diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
-index 73f6e1f390d..743a89dc7a0 100644
 --- a/pkg/kubeapiserver/options/authentication.go
 +++ b/pkg/kubeapiserver/options/authentication.go
 @@ -28,6 +28,8 @@ import (
@@ -58,6 +57,3 @@ index 73f6e1f390d..743a89dc7a0 100644
  		)
  	}
  
--- 
-2.54.0
-

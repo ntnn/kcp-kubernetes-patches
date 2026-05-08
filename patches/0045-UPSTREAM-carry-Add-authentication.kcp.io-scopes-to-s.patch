@@ -1,4 +1,4 @@
-From bc2e0111aca25a74475905ff9408223841403f72 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Wed, 10 Sep 2025 16:22:34 +0200
 Subject: [PATCH] UPSTREAM: <carry>: Add authentication.kcp.io/scopes to
@@ -11,7 +11,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  1 file changed, 3 insertions(+)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go b/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go
-index 9bcdbd4d8e3..e113ced880c 100644
 --- a/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go
 +++ b/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go
 @@ -52,6 +52,8 @@ const (
@@ -31,6 +30,3 @@ index 9bcdbd4d8e3..e113ced880c 100644
  	return info
  }
  
--- 
-2.54.0
-

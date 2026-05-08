@@ -1,4 +1,4 @@
-From e0b9d3dac6e5f33b1ffded4e7973edf87ce44526 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Robert Vasek <rvasek01@gmail.com>
 Date: Sat, 4 Apr 2026 19:16:39 +0200
 Subject: [PATCH] UPSTREAM: <squash> fix missing KcpStorageMetadata in
@@ -14,7 +14,6 @@ Signed-off-by: Robert Vasek <robert.vasek@clyso.com>
  2 files changed, 18 insertions(+), 12 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
-index 4adde151f45..cc14f195449 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
 @@ -346,6 +346,9 @@ type Cacher struct {
@@ -36,7 +35,6 @@ index 4adde151f45..cc14f195449 100644
  	reflectorName := "storage/cacher.go:" + resourcePrefix
  
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
-index 9d7b1a91cac..b51d5118a01 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
 @@ -35,11 +35,11 @@ import (
@@ -102,6 +100,3 @@ index 9d7b1a91cac..b51d5118a01 100644
  	digests, err := c.calculateDigests(ctx)
  	if err != nil {
  		klog.ErrorS(err, "Cache consistency check error", "group", c.groupResource.Group, "resource", c.groupResource.Resource)
--- 
-2.54.0
-

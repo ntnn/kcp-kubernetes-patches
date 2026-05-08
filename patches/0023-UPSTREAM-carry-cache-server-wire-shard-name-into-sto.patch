@@ -1,4 +1,4 @@
-From 5a0f05a490e4006c867f1bd25900177b28f9c269 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 13:31:40 +0200
 Subject: [PATCH] UPSTREAM: <carry>: cache-server: wire shard name into storage
@@ -20,7 +20,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  create mode 100644 staging/src/k8s.io/apiserver/pkg/endpoints/request/context_shard_kcp.go
 
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/strategy.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/strategy.go
-index 8e5377f945a..d82c3545e3a 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/strategy.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/strategy.go
 @@ -156,7 +156,7 @@ func (a customResourceStrategy) PrepareForCreate(ctx context.Context, obj runtim
@@ -43,7 +42,6 @@ index 8e5377f945a..d82c3545e3a 100644
  			return
 diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/request/context_shard_kcp.go b/staging/src/k8s.io/apiserver/pkg/endpoints/request/context_shard_kcp.go
 new file mode 100644
-index 00000000000..93cc615dd94
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/endpoints/request/context_shard_kcp.go
 @@ -0,0 +1,64 @@
@@ -112,7 +110,6 @@ index 00000000000..93cc615dd94
 +	return shard
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
-index 41d1d192606..5649b80510c 100644
 --- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 @@ -267,11 +267,18 @@ const (
@@ -162,7 +159,6 @@ index 41d1d192606..5649b80510c 100644
  			if needsUpdate {
  				existingAccessor.SetFinalizers(newFinalizers)
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/rest/meta.go b/staging/src/k8s.io/apiserver/pkg/registry/rest/meta.go
-index 47f7f83b7b4..7fd90e2065c 100644
 --- a/staging/src/k8s.io/apiserver/pkg/registry/rest/meta.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/rest/meta.go
 @@ -21,6 +21,7 @@ import (
@@ -200,7 +196,6 @@ index 47f7f83b7b4..7fd90e2065c 100644
  }
  
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go b/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go
-index 00f42cfe7c7..5d05c594412 100644
 --- a/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go
 @@ -124,7 +124,12 @@ func BeforeUpdate(strategy RESTUpdateStrategy, ctx context.Context, obj, old run
@@ -218,7 +213,6 @@ index 00f42cfe7c7..5d05c594412 100644
  	strategy.PrepareForUpdate(ctx, obj, old)
  
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
-index 170fd2cb37a..e77464a061a 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
 @@ -28,9 +28,10 @@ import (
@@ -253,7 +247,6 @@ index 170fd2cb37a..e77464a061a 100644
  	s.SetAnnotations(annotations)
  }
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
-index e21cdaae543..4cc45c9fdde 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 @@ -96,7 +96,9 @@ type watchChan struct {
@@ -318,6 +311,3 @@ index e21cdaae543..4cc45c9fdde 100644
  		annotateDecodedObjectWith(oldObj, clusterName, shardName)
  	}
  	return curObj, oldObj, nil
--- 
-2.54.0
-

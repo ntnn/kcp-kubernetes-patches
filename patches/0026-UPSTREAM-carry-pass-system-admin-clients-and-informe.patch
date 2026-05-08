@@ -1,4 +1,4 @@
-From a2e7e77acde5a429ce50fc792c443e1884972eb2 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Marvin Beckers <marvin@kubermatic.com>
 Date: Thu, 13 Jun 2024 14:23:15 +0200
 Subject: [PATCH] UPSTREAM: <carry>: pass system:admin clients and informers in
@@ -13,7 +13,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  2 files changed, 9 insertions(+), 4 deletions(-)
 
 diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/config.go
-index 32768ca479f..ec657ce8a34 100644
 --- a/pkg/controlplane/apiserver/config.go
 +++ b/pkg/controlplane/apiserver/config.go
 @@ -51,7 +51,6 @@ import (
@@ -50,7 +49,6 @@ index 32768ca479f..ec657ce8a34 100644
  		return nil, nil, fmt.Errorf("failed to create real client-go external client: %w", err)
  	}
 diff --git a/pkg/controlplane/apiserver/server.go b/pkg/controlplane/apiserver/server.go
-index 5bcf71f29fe..5e9f4ec39f1 100644
 --- a/pkg/controlplane/apiserver/server.go
 +++ b/pkg/controlplane/apiserver/server.go
 @@ -203,6 +203,10 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
@@ -72,6 +70,3 @@ index 5bcf71f29fe..5e9f4ec39f1 100644
  		// prime values and start listeners
  		if s.ClusterAuthenticationInfo.ClientCA != nil {
  			s.ClusterAuthenticationInfo.ClientCA.AddListener(controller)
--- 
-2.54.0
-

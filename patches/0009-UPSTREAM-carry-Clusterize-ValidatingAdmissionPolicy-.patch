@@ -1,4 +1,4 @@
-From c553feb51c18e01a13f20869f2a783b399cb4a28 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Marvin Beckers <marvin@kubermatic.com>
 Date: Wed, 24 Jul 2024 17:57:02 +0200
 Subject: [PATCH] UPSTREAM: <carry>: Clusterize ValidatingAdmissionPolicy
@@ -18,7 +18,6 @@ Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
  9 files changed, 69 insertions(+), 29 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/accessor.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/accessor.go
-index 515634f0062..09e25c5c51d 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/accessor.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/accessor.go
 @@ -24,6 +24,7 @@ import (
@@ -38,7 +37,6 @@ index 515634f0062..09e25c5c51d 100644
  	// GetPolicyName returns the name of the (Validating/Mutating)AdmissionPolicy,
  	// which is cluster-scoped, so namespace is usually left blank.
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin.go
-index 03aebdd58ac..c48aff21716 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin.go
 @@ -21,6 +21,7 @@ import (
@@ -112,7 +110,6 @@ index 03aebdd58ac..c48aff21716 100644
  
  	pluginContext, pluginContextCancel := context.WithCancel(context.Background())
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go
-index a1264ead2d8..020c562a9c4 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go
 @@ -1,18 +1,23 @@
@@ -145,7 +142,6 @@ index a1264ead2d8..020c562a9c4 100644
 +	c.clusterName = clusterName
  }
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/policy_source.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/policy_source.go
-index 09e4895e933..564c2b7a275 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/policy_source.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/policy_source.go
 @@ -39,6 +39,8 @@ import (
@@ -181,7 +177,6 @@ index 09e4895e933..564c2b7a275 100644
  		Namespace: policyMeta.GetNamespace(),
  		Name:      policyMeta.GetName(),
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/policy_test_context.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/policy_test_context.go
-index b98c10e7050..8aa8b4b70fd 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/policy_test_context.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/policy_test_context.go
 @@ -21,6 +21,7 @@ import (
@@ -210,7 +205,6 @@ index b98c10e7050..8aa8b4b70fd 100644
  			return source
  		}, dispatcher)
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/internal/generic/informer.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/internal/generic/informer.go
-index acb6316ec3a..fa9d8854408 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/internal/generic/informer.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/internal/generic/informer.go
 @@ -17,6 +17,7 @@ limitations under the License.
@@ -234,7 +228,6 @@ index acb6316ec3a..fa9d8854408 100644
  	}
  }
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/internal/generic/lister.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/internal/generic/lister.go
-index aa6b090324c..ddca7406877 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/internal/generic/lister.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/internal/generic/lister.go
 @@ -25,17 +25,21 @@ import (
@@ -309,7 +302,6 @@ index aa6b090324c..ddca7406877 100644
 +	return lister[T]{indexer: indexer, clusterName: clusterName}
  }
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating/accessor.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating/accessor.go
-index 628e3a65329..05e0548995c 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating/accessor.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating/accessor.go
 @@ -17,6 +17,7 @@ limitations under the License.
@@ -343,7 +335,6 @@ index 628e3a65329..05e0548995c 100644
  	return types.NamespacedName{
  		Namespace: "",
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating/plugin.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating/plugin.go
-index bdca01e691a..365be591f27 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating/plugin.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating/plugin.go
 @@ -21,6 +21,8 @@ import (
@@ -385,6 +376,3 @@ index bdca01e691a..365be591f27 100644
  	hasParam := false
  	if policy.Spec.ParamKind != nil {
  		hasParam = true
--- 
-2.54.0
-

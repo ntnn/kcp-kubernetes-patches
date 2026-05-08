@@ -1,4 +1,4 @@
-From a709a95b085eb2a88ebc4f903c6046e4003ba94d Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Marvin Beckers <marvin@kubermatic.com>
 Date: Fri, 12 Jul 2024 14:58:29 +0200
 Subject: [PATCH] UPSTREAM: <carry>: wrap CRD group into packagePrefix for
@@ -10,7 +10,6 @@ Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
  1 file changed, 3 insertions(+), 5 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder/builder.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder/builder.go
-index d0e399d5be4..d6185f13c10 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder/builder.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder/builder.go
 @@ -599,11 +599,11 @@ func (b *builder) getOpenAPIV3Config() *common.OpenAPIV3Config {
@@ -45,6 +44,3 @@ index d0e399d5be4..d6185f13c10 100644
  		version:  version,
  		kind:     crd.Spec.Names.Kind,
  		listKind: crd.Spec.Names.ListKind,
--- 
-2.54.0
-

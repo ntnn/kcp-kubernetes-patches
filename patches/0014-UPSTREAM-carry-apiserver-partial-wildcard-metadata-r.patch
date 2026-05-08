@@ -1,4 +1,4 @@
-From 32413a33be89696c7d238075401946647ee3c173 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 16:03:58 +0200
 Subject: [PATCH] UPSTREAM: <carry>: apiserver: partial wildcard metadata
@@ -13,7 +13,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/kcp/crd_context.go b/staging/src/k8s.io/apiserver/pkg/kcp/crd_context.go
 new file mode 100644
-index 00000000000..13ed9c10648
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/kcp/crd_context.go
 @@ -0,0 +1,43 @@
@@ -61,7 +60,6 @@ index 00000000000..13ed9c10648
 +	return v.(bool)
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
-index 24294daaf3b..170fd2cb37a 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
 @@ -26,8 +26,11 @@ import (
@@ -96,6 +94,3 @@ index 24294daaf3b..170fd2cb37a 100644
  }
  
  // adjustShardNameIfWildcard determines a shard name. If this is not a shard-wildcard request,
--- 
-2.54.0
-

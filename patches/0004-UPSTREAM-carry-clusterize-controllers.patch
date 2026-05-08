@@ -1,4 +1,4 @@
-From 37775004ff71a70fe45edb1ddc4fd88baadd6217 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Fri, 1 Sep 2023 12:14:15 +0200
 Subject: [PATCH] UPSTREAM: <carry>: clusterize controllers
@@ -28,7 +28,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  16 files changed, 503 insertions(+), 173 deletions(-)
 
 diff --git a/cmd/kube-controller-manager/app/core.go b/cmd/kube-controller-manager/app/core.go
-index 309286be8bb..312314804ae 100644
 --- a/cmd/kube-controller-manager/app/core.go
 +++ b/cmd/kube-controller-manager/app/core.go
 @@ -28,6 +28,8 @@ import (
@@ -52,7 +51,6 @@ index 309286be8bb..312314804ae 100644
  	namespaceController := namespacecontroller.NewNamespaceController(
  		ctx,
 diff --git a/pkg/controller/certificates/rootcacertpublisher/publisher.go b/pkg/controller/certificates/rootcacertpublisher/publisher.go
-index 6c2bc0bfd83..fca9a3c8fd2 100644
 --- a/pkg/controller/certificates/rootcacertpublisher/publisher.go
 +++ b/pkg/controller/certificates/rootcacertpublisher/publisher.go
 @@ -23,14 +23,16 @@ import (
@@ -204,7 +202,6 @@ index 6c2bc0bfd83..fca9a3c8fd2 100644
 +	return kcpcache.ToClusterAwareKey(logicalcluster.From(configmap).String(), "", configmap.GetNamespace())
 +}
 diff --git a/pkg/controller/clusterroleaggregation/clusterroleaggregation_controller.go b/pkg/controller/clusterroleaggregation/clusterroleaggregation_controller.go
-index 2b27994f8e7..922639efdfb 100644
 --- a/pkg/controller/clusterroleaggregation/clusterroleaggregation_controller.go
 +++ b/pkg/controller/clusterroleaggregation/clusterroleaggregation_controller.go
 @@ -23,7 +23,11 @@ import (
@@ -360,7 +357,6 @@ index 2b27994f8e7..922639efdfb 100644
  			utilruntime.HandleError(fmt.Errorf("Couldn't get key for object %#v: %v", clusterRole, err))
  			return
 diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b/pkg/controller/namespace/deletion/namespaced_resources_deleter.go
-index f4ac1f5a612..9026bebc80f 100644
 --- a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go
 +++ b/pkg/controller/namespace/deletion/namespaced_resources_deleter.go
 @@ -23,6 +23,9 @@ import (
@@ -737,7 +733,6 @@ index f4ac1f5a612..9026bebc80f 100644
  		return 0, err
  	}
 diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter_test.go b/pkg/controller/namespace/deletion/namespaced_resources_deleter_test.go
-index a320bf1b856..304c0c774b7 100644
 --- a/pkg/controller/namespace/deletion/namespaced_resources_deleter_test.go
 +++ b/pkg/controller/namespace/deletion/namespaced_resources_deleter_test.go
 @@ -26,6 +26,7 @@ import (
@@ -807,7 +802,6 @@ index a320bf1b856..304c0c774b7 100644
  	}
  	if len(mockMetadataClient.Actions()) != 2 ||
 diff --git a/pkg/controller/namespace/namespace_controller.go b/pkg/controller/namespace/namespace_controller.go
-index 51ac86a03fe..320742941db 100644
 --- a/pkg/controller/namespace/namespace_controller.go
 +++ b/pkg/controller/namespace/namespace_controller.go
 @@ -21,6 +21,12 @@ import (
@@ -895,7 +889,6 @@ index 51ac86a03fe..320742941db 100644
  
  // Run starts observing the system with the specified number of workers.
 diff --git a/pkg/controller/resourcequota/resource_quota_controller.go b/pkg/controller/resourcequota/resource_quota_controller.go
-index e78c6ddfd40..3ff548bb90d 100644
 --- a/pkg/controller/resourcequota/resource_quota_controller.go
 +++ b/pkg/controller/resourcequota/resource_quota_controller.go
 @@ -20,6 +20,7 @@ import (
@@ -936,7 +929,6 @@ index e78c6ddfd40..3ff548bb90d 100644
  		// if err is non-nil, remember it to return, but continue updating status with any resources in newUsage
  		errs = append(errs, err)
 diff --git a/pkg/controller/resourcequota/resource_quota_monitor.go b/pkg/controller/resourcequota/resource_quota_monitor.go
-index 28aef8be539..969aa428ddd 100644
 --- a/pkg/controller/resourcequota/resource_quota_monitor.go
 +++ b/pkg/controller/resourcequota/resource_quota_monitor.go
 @@ -238,6 +238,7 @@ func (qm *QuotaMonitor) SyncMonitors(ctx context.Context, resources map[schema.G
@@ -956,7 +948,6 @@ index 28aef8be539..969aa428ddd 100644
  	}
  	qm.monitors = nil
 diff --git a/pkg/controller/serviceaccount/serviceaccounts_controller.go b/pkg/controller/serviceaccount/serviceaccounts_controller.go
-index 7aee3c3ccbb..2ec38c1a535 100644
 --- a/pkg/controller/serviceaccount/serviceaccounts_controller.go
 +++ b/pkg/controller/serviceaccount/serviceaccounts_controller.go
 @@ -22,15 +22,16 @@ import (
@@ -1078,7 +1069,6 @@ index 7aee3c3ccbb..2ec38c1a535 100644
 +	c.queue.Add(key)
 +}
 diff --git a/pkg/controller/serviceaccount/tokengetter.go b/pkg/controller/serviceaccount/tokengetter.go
-index 98afde0b727..7388727fa5b 100644
 --- a/pkg/controller/serviceaccount/tokengetter.go
 +++ b/pkg/controller/serviceaccount/tokengetter.go
 @@ -14,11 +14,18 @@ See the License for the specific language governing permissions and
@@ -1158,7 +1148,6 @@ index 98afde0b727..7388727fa5b 100644
  	return c.client.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
  }
 diff --git a/pkg/controller/serviceaccount/tokens_controller.go b/pkg/controller/serviceaccount/tokens_controller.go
-index 22fdb54373b..2c02e22327e 100644
 --- a/pkg/controller/serviceaccount/tokens_controller.go
 +++ b/pkg/controller/serviceaccount/tokens_controller.go
 @@ -23,6 +23,10 @@ import (
@@ -1567,7 +1556,6 @@ index 22fdb54373b..2c02e22327e 100644
  		name:      secret.Name,
  		uid:       secret.UID,
 diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
-index 9b202d9d728..73f6e1f390d 100644
 --- a/pkg/kubeapiserver/options/authentication.go
 +++ b/pkg/kubeapiserver/options/authentication.go
 @@ -50,14 +50,12 @@ import (
@@ -1604,7 +1592,6 @@ index 9b202d9d728..73f6e1f390d 100644
  	}
  	authenticatorConfig.SecretsWriter = extclient.CoreV1()
 diff --git a/pkg/serviceaccount/jwt.go b/pkg/serviceaccount/jwt.go
-index 71ac5c90959..0a555cb5363 100644
 --- a/pkg/serviceaccount/jwt.go
 +++ b/pkg/serviceaccount/jwt.go
 @@ -31,6 +31,8 @@ import (
@@ -1629,7 +1616,6 @@ index 71ac5c90959..0a555cb5363 100644
  type ServiceAccountTokenGetter interface {
  	GetServiceAccount(namespace, name string) (*v1.ServiceAccount, error)
 diff --git a/test/e2e/apimachinery/discovery.go b/test/e2e/apimachinery/discovery.go
-index f98ce820bf3..7def10dfebb 100644
 --- a/test/e2e/apimachinery/discovery.go
 +++ b/test/e2e/apimachinery/discovery.go
 @@ -22,6 +22,7 @@ import (
@@ -1650,7 +1636,6 @@ index f98ce820bf3..7def10dfebb 100644
  		for _, r := range resources.APIResources {
  			if r.Name == spec.Names.Plural {
 diff --git a/test/e2e_node/services/namespace_controller.go b/test/e2e_node/services/namespace_controller.go
-index dc3ddb16029..995a78c08fc 100644
 --- a/test/e2e_node/services/namespace_controller.go
 +++ b/test/e2e_node/services/namespace_controller.go
 @@ -20,7 +20,9 @@ import (
@@ -1675,7 +1660,6 @@ index dc3ddb16029..995a78c08fc 100644
  
  	nc := namespacecontroller.NewNamespaceController(
 diff --git a/test/integration/namespace/ns_conditions_test.go b/test/integration/namespace/ns_conditions_test.go
-index 2f8a1d40518..e7e4f93b9b6 100644
 --- a/test/integration/namespace/ns_conditions_test.go
 +++ b/test/integration/namespace/ns_conditions_test.go
 @@ -23,6 +23,10 @@ import (
@@ -1731,6 +1715,3 @@ index 2f8a1d40518..e7e4f93b9b6 100644
  		10*time.Hour,
  		corev1.FinalizerKubernetes)
  
--- 
-2.54.0
-

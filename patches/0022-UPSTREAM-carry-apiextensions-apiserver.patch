@@ -1,4 +1,4 @@
-From f970de4915399f7886ef60ee28381da4659503b6 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 12:31:44 +0200
 Subject: [PATCH] UPSTREAM: <carry>: apiextensions-apiserver
@@ -59,7 +59,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  create mode 100644 staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/etcd_kcp.go
 
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation.go
-index 89051e2af76..d853d52a85b 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation.go
 @@ -75,26 +75,39 @@ var supportedValidationReason = sets.NewString(
@@ -457,7 +456,6 @@ index 89051e2af76..d853d52a85b 100644
  								}
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation_kcp.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation_kcp.go
 new file mode 100644
-index 00000000000..09c29b21b6e
 --- /dev/null
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation_kcp.go
 @@ -0,0 +1,45 @@
@@ -507,7 +505,6 @@ index 00000000000..09c29b21b6e
 +	return kubernetesAPIGroups.Has(group)
 +}
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation_test.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation_test.go
-index a52d0166e0d..962e524e6bc 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation_test.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation_test.go
 @@ -8288,9 +8288,9 @@ func TestValidateCustomResourceDefinitionValidationRuleCompatibility(t *testing.
@@ -1340,7 +1337,6 @@ index a52d0166e0d..962e524e6bc 100644
  			errors := ValidateCustomResourceDefinitionOpenAPISchema(tt.schema, field.NewPath("openAPIV3Schema"), openAPIV3Schema, true, &opts, celContext).AllErrors()
  			if len(errors) != 0 {
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.go
-index bbe5391741e..d1d36fa7e34 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.go
 @@ -22,13 +22,14 @@ import (
@@ -1513,7 +1509,6 @@ index bbe5391741e..d1d36fa7e34 100644
  	})
  	// we don't want to report healthy until we can handle all CRDs that have already been registered.  Waiting for the informer
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/converter.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/converter.go
-index 688c577eb50..57db5b58470 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/converter.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/converter.go
 @@ -118,6 +118,9 @@ func NewDelegatingConverter(crd *apiextensionsv1.CustomResourceDefinition, deleg
@@ -1573,7 +1568,6 @@ index 688c577eb50..57db5b58470 100644
  
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/wildcard_partial_metadata_converter_kcp.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/wildcard_partial_metadata_converter_kcp.go
 new file mode 100644
-index 00000000000..cd3821e0354
 --- /dev/null
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/wildcard_partial_metadata_converter_kcp.go
 @@ -0,0 +1,58 @@
@@ -1636,7 +1630,6 @@ index 00000000000..cd3821e0354
 +	return list, nil
 +}
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_discovery.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_discovery.go
-index f40c33791b6..d9c5b6df6f0 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_discovery.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_discovery.go
 @@ -17,20 +17,28 @@ limitations under the License.
@@ -2009,7 +2002,6 @@ index f40c33791b6..d9c5b6df6f0 100644
 +}
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_discovery_controller.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_discovery_controller.go
 deleted file mode 100644
-index 1e8ffbc69ca..00000000000
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_discovery_controller.go
 +++ /dev/null
 @@ -1,397 +0,0 @@
@@ -2412,7 +2404,6 @@ index 1e8ffbc69ca..00000000000
 -}
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_discovery_controller_test.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_discovery_controller_test.go
 deleted file mode 100644
-index 5d279a7c47f..00000000000
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_discovery_controller_test.go
 +++ /dev/null
 @@ -1,425 +0,0 @@
@@ -2842,7 +2833,6 @@ index 5d279a7c47f..00000000000
 -	require.NoError(t, err)
 -}
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler.go
-index f60c77d5177..3ddf006c777 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler.go
 @@ -17,9 +17,11 @@ limitations under the License.
@@ -3503,7 +3493,6 @@ index f60c77d5177..3ddf006c777 100644
  	}
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_kcp.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_kcp.go
 new file mode 100644
-index 00000000000..2f7e57e0c96
 --- /dev/null
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_kcp.go
 @@ -0,0 +1,60 @@
@@ -3569,7 +3558,6 @@ index 00000000000..2f7e57e0c96
 +}
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_tableconverter_kcp.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_tableconverter_kcp.go
 new file mode 100644
-index 00000000000..40c97622510
 --- /dev/null
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_tableconverter_kcp.go
 @@ -0,0 +1,28 @@
@@ -3602,7 +3590,6 @@ index 00000000000..40c97622510
 +	GetTableConverter(group, kind, listKind string) rest.TableConvertor
 +}
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_test.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_test.go
-index ad86f1f0e68..53563d399e3 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_test.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_test.go
 @@ -169,20 +169,24 @@ func TestRouting(t *testing.T) {
@@ -3651,7 +3638,6 @@ index ad86f1f0e68..53563d399e3 100644
  	}
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_options_getter_kcp.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_options_getter_kcp.go
 new file mode 100644
-index 00000000000..615d463766b
 --- /dev/null
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_options_getter_kcp.go
 @@ -0,0 +1,71 @@
@@ -3727,7 +3713,6 @@ index 00000000000..615d463766b
 +	return ret, err
 +}
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/schema/kubeopenapi.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/schema/kubeopenapi.go
-index df78ba77e61..1ce06852922 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/schema/kubeopenapi.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/schema/kubeopenapi.go
 @@ -80,12 +80,22 @@ func (x *Extensions) toKubeOpenAPI(ret *spec.Schema) {
@@ -3754,7 +3739,6 @@ index df78ba77e61..1ce06852922 100644
  }
  
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/apiapproval/apiapproval_controller.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/apiapproval/apiapproval_controller.go
-index 6ea0d74d0f8..47510f064c8 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/apiapproval/apiapproval_controller.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/apiapproval/apiapproval_controller.go
 @@ -22,11 +22,13 @@ import (
@@ -3834,7 +3818,6 @@ index 6ea0d74d0f8..47510f064c8 100644
  	}
  
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/establish/establishing_controller.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/establish/establishing_controller.go
-index 917309b73c4..eb5b228618a 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/establish/establishing_controller.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/establish/establishing_controller.go
 @@ -21,6 +21,14 @@ import (
@@ -3919,7 +3902,6 @@ index 917309b73c4..eb5b228618a 100644
  		// deleted or changed in the meantime, we'll get called again
  		return nil
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/finalizer/crd_finalizer.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/finalizer/crd_finalizer.go
-index e3354f336a7..b17d27bfc42 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/finalizer/crd_finalizer.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/finalizer/crd_finalizer.go
 @@ -22,8 +22,14 @@ import (
@@ -4040,7 +4022,6 @@ index e3354f336a7..b17d27bfc42 100644
  		utilruntime.HandleError(fmt.Errorf("couldn't get key for object %#v: %v", obj, err))
  		return
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/nonstructuralschema/nonstructuralschema_controller.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/nonstructuralschema/nonstructuralschema_controller.go
-index 57eb1686a5d..1cafe69b30f 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/nonstructuralschema/nonstructuralschema_controller.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/nonstructuralschema/nonstructuralschema_controller.go
 @@ -22,6 +22,15 @@ import (
@@ -4128,7 +4109,6 @@ index 57eb1686a5d..1cafe69b30f 100644
  		utilruntime.HandleError(fmt.Errorf("couldn't get key for object %#v: %v", obj, err))
  		return
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder/builder.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder/builder.go
-index f598be356ba..d0e399d5be4 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder/builder.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder/builder.go
 @@ -159,11 +159,17 @@ func generateBuilder(crd *apiextensionsv1.CustomResourceDefinition, version stri
@@ -4203,7 +4183,6 @@ index f598be356ba..d0e399d5be4 100644
  		listKind: crd.Spec.Names.ListKind,
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder/builder_kcp.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder/builder_kcp.go
 new file mode 100644
-index 00000000000..ec8c86b0541
 --- /dev/null
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder/builder_kcp.go
 @@ -0,0 +1,49 @@
@@ -4257,7 +4236,6 @@ index 00000000000..ec8c86b0541
 +	return "k8s.io/api/" + group
 +}
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/controller.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/controller.go
-index a83d298f8f9..afb7bbb8356 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/controller.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/controller.go
 @@ -23,11 +23,20 @@ import (
@@ -4529,7 +4507,6 @@ index a83d298f8f9..afb7bbb8356 100644
  
  func generateCRDHash(crd *apiextensionsv1.CustomResourceDefinition) string {
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapiv3/controller.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapiv3/controller.go
-index 7e072d38558..4dfb2a3c14f 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapiv3/controller.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapiv3/controller.go
 @@ -22,6 +22,13 @@ import (
@@ -4606,7 +4583,6 @@ index 7e072d38558..4dfb2a3c14f 100644
 +	c.queue.Add(key)
  }
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/status/naming_controller.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/status/naming_controller.go
-index 518237c3ebb..4f5892ca867 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/status/naming_controller.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/status/naming_controller.go
 @@ -23,8 +23,16 @@ import (
@@ -4806,7 +4782,6 @@ index 518237c3ebb..4f5892ca867 100644
  	return nil
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/status/naming_controller_kcp_test.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/status/naming_controller_kcp_test.go
 new file mode 100644
-index 00000000000..bf51f3cddeb
 --- /dev/null
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/status/naming_controller_kcp_test.go
 @@ -0,0 +1,114 @@
@@ -4926,7 +4901,6 @@ index 00000000000..bf51f3cddeb
 +}
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/kcp/cluster_aware_crd_lister.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/kcp/cluster_aware_crd_lister.go
 new file mode 100644
-index 00000000000..170b6b58839
 --- /dev/null
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/kcp/cluster_aware_crd_lister.go
 @@ -0,0 +1,42 @@
@@ -4973,7 +4947,6 @@ index 00000000000..170b6b58839
 +	Refresh(crd *v1.CustomResourceDefinition) (*v1.CustomResourceDefinition, error)
 +}
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/etcd.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/etcd.go
-index fbbfb6e43df..9718291df6a 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/etcd.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/etcd.go
 @@ -42,6 +42,10 @@ type CustomResourceStorage struct {
@@ -4998,7 +4971,6 @@ index fbbfb6e43df..9718291df6a 100644
  
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/etcd_kcp.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/etcd_kcp.go
 new file mode 100644
-index 00000000000..846c9630cc5
 --- /dev/null
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/etcd_kcp.go
 @@ -0,0 +1,36 @@
@@ -5039,7 +5011,6 @@ index 00000000000..846c9630cc5
 +// CustomResourceStrategy makes customResourceStrategy public for downstream consumers.
 +type CustomResourceStrategy = customResourceStrategy
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/etcd_test.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/etcd_test.go
-index e5df87be2c7..eecd5fe2232 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/etcd_test.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/etcd_test.go
 @@ -29,12 +29,13 @@ import (
@@ -5292,7 +5263,6 @@ index e5df87be2c7..eecd5fe2232 100644
  	}
  
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/status_strategy.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/status_strategy.go
-index b89e42db167..9e2558d47d8 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/status_strategy.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/status_strategy.go
 @@ -81,6 +81,7 @@ func (a statusStrategy) PrepareForUpdate(ctx context.Context, obj, old runtime.O
@@ -5304,7 +5274,6 @@ index b89e42db167..9e2558d47d8 100644
  	if ok {
  		newCustomResource["status"] = status
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/strategy.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/strategy.go
-index bf84038e66d..8e5377f945a 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/strategy.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/strategy.go
 @@ -34,6 +34,7 @@ import (
@@ -5365,7 +5334,6 @@ index bf84038e66d..8e5377f945a 100644
  	}
  }
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/validator.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/validator.go
-index eabb3fd572d..5bc087aafdc 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/validator.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/validator.go
 @@ -37,6 +37,8 @@ import (
@@ -5401,7 +5369,6 @@ index eabb3fd572d..5bc087aafdc 100644
  	}
  	return allErrs
 diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go b/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go
-index f4ae28959ee..f8f7ad92042 100644
 --- a/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go
 +++ b/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go
 @@ -31,8 +31,8 @@ import (
@@ -5444,7 +5411,6 @@ index f4ae28959ee..f8f7ad92042 100644
  		if !ok {
  			continue
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
-index bc356fdc440..41d1d192606 100644
 --- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 @@ -1684,7 +1684,8 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
@@ -5458,7 +5424,6 @@ index bc356fdc440..41d1d192606 100644
  	klog.V(2).InfoS("Monitoring resource count at path", "resource", resourceName, "path", "<storage-prefix>/"+prefix)
  	stopCh := make(chan struct{})
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go
-index d69f358d09a..c7d6f4f8385 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go
 @@ -103,7 +103,7 @@ func (lw *listerWatcher) List(options metav1.ListOptions) (runtime.Object, error
@@ -5480,7 +5445,6 @@ index d69f358d09a..c7d6f4f8385 100644
  	return lw.storage.Watch(ctx, lw.kcpAwareResourcePrefix(), opts)
  }
 diff --git a/staging/src/k8s.io/apiserver/pkg/util/openapi/proto.go b/staging/src/k8s.io/apiserver/pkg/util/openapi/proto.go
-index e36bf452b16..8c97876650d 100644
 --- a/staging/src/k8s.io/apiserver/pkg/util/openapi/proto.go
 +++ b/staging/src/k8s.io/apiserver/pkg/util/openapi/proto.go
 @@ -20,6 +20,8 @@ import (
@@ -5516,6 +5480,3 @@ index e36bf452b16..8c97876650d 100644
 +
 +	return models, nil
 +}
--- 
-2.54.0
-

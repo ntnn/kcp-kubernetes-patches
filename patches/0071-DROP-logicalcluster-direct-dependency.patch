@@ -1,4 +1,4 @@
-From e849fbc4141e52fd9c0d2a55206fdcf0a37dca15 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Sun, 12 Apr 2026 01:01:36 +0200
 Subject: [PATCH] DROP: logicalcluster direct dependency
@@ -10,7 +10,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/go.mod b/go.mod
-index 6a78eb1881c..b212a528983 100644
 --- a/go.mod
 +++ b/go.mod
 @@ -36,6 +36,7 @@ require (
@@ -29,6 +28,3 @@ index 6a78eb1881c..b212a528983 100644
  	github.com/kylelemons/godebug v1.1.0 // indirect
  	github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de // indirect
  	github.com/mailru/easyjson v0.7.7 // indirect
--- 
-2.54.0
-

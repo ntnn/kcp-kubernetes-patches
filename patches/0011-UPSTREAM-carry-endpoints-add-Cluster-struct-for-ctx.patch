@@ -1,4 +1,4 @@
-From 0c4d3faa8193fec63fb80d46fb002ae681fce62c Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 13:31:24 +0200
 Subject: [PATCH] UPSTREAM: <carry>: endpoints: add Cluster struct for ctx
@@ -11,7 +11,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/request/context_cluster_kcp.go b/staging/src/k8s.io/apiserver/pkg/endpoints/request/context_cluster_kcp.go
 new file mode 100644
-index 00000000000..efa4517ecfd
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/endpoints/request/context_cluster_kcp.go
 @@ -0,0 +1,110 @@
@@ -125,6 +124,3 @@ index 00000000000..efa4517ecfd
 +	}
 +	return cluster.Name, nil
 +}
--- 
-2.54.0
-

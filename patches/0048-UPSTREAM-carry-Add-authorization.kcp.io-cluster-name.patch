@@ -1,4 +1,4 @@
-From e83661e572164976557464e27b183eaa9e26f8fa Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Mon, 29 Sep 2025 14:44:57 +0200
 Subject: [PATCH] UPSTREAM: <carry>: Add authorization.kcp.io/cluster-name
@@ -11,7 +11,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  1 file changed, 8 insertions(+), 2 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go b/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go
-index 2e74e956a53..c1887119b0d 100644
 --- a/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go
 +++ b/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go
 @@ -56,8 +56,13 @@ const (
@@ -38,6 +37,3 @@ index 2e74e956a53..c1887119b0d 100644
  		r.Spec.Extra[ClusterNameKey] = authorizationv1.ExtraValue{clusterName.Path().String()}
  	}
  
--- 
-2.54.0
-

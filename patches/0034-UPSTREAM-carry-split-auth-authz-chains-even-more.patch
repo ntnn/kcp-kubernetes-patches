@@ -1,4 +1,4 @@
-From 6df8fc96104baecf7191a2379cc1a404272a1fce Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Mangirdas Judeikis <Mangirdas@Judeikis.LT>
 Date: Tue, 10 Dec 2024 17:17:39 +0200
 Subject: [PATCH] UPSTREAM: <carry>: split auth/authz chains even more
@@ -10,7 +10,6 @@ On-behalf-of: SAP mangirdas.judeikis@sap.com
  1 file changed, 20 insertions(+), 5 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/config.go b/staging/src/k8s.io/apiserver/pkg/server/config.go
-index 58521c5fefa..9458953ce84 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/config.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/config.go
 @@ -1010,16 +1010,24 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G
@@ -65,6 +64,3 @@ index 58521c5fefa..9458953ce84 100644
  	handler = filterlatency.TrackCompleted(handler)
  	handler = genericapifilters.WithAudit(handler, c.AuditBackend, c.AuditPolicyRuleEvaluator, c.LongRunningFunc)
  	handler = filterlatency.TrackStarted(handler, c.TracerProvider, "audit")
--- 
-2.54.0
-

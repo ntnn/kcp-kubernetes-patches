@@ -1,4 +1,4 @@
-From 7a7fa4ae1dca35dfda7ef6f10b2abf78742485e6 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Wed, 10 Sep 2025 16:24:54 +0200
 Subject: [PATCH] UPSTREAM: <carry>: Add system:cluster:<cluster> group to
@@ -12,7 +12,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  2 files changed, 177 insertions(+), 20 deletions(-)
 
 diff --git a/pkg/registry/rbac/validation/kcp.go b/pkg/registry/rbac/validation/kcp.go
-index 55d4a761d04..4766fb7b5f5 100644
 --- a/pkg/registry/rbac/validation/kcp.go
 +++ b/pkg/registry/rbac/validation/kcp.go
 @@ -3,6 +3,7 @@ package validation
@@ -151,7 +150,6 @@ index 55d4a761d04..4766fb7b5f5 100644
  		}
  		ret = append(ret, authed)
 diff --git a/pkg/registry/rbac/validation/kcp_test.go b/pkg/registry/rbac/validation/kcp_test.go
-index 4825a8a57dc..452cccf0154 100644
 --- a/pkg/registry/rbac/validation/kcp_test.go
 +++ b/pkg/registry/rbac/validation/kcp_test.go
 @@ -176,12 +176,30 @@ func TestAppliesToUserWithWarrantsAndScopes(t *testing.T) {
@@ -345,6 +343,3 @@ index 4825a8a57dc..452cccf0154 100644
 +		})
 +	}
 +}
--- 
-2.54.0
-

@@ -1,4 +1,4 @@
-From 417893aad973893b26757b9ecc32db08c56f9416 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Robert Vasek <rvasek01@gmail.com>
 Date: Fri, 13 Mar 2026 13:51:17 +0100
 Subject: [PATCH] UPSTREAM: <squash> fix calculating kcp storage annotations
@@ -15,7 +15,6 @@ Signed-off-by: Robert Vasek <robert.vasek@clyso.com>
  4 files changed, 287 insertions(+), 42 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
-index cb399b7eeed..46bdf96cc98 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 @@ -879,7 +879,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
@@ -28,7 +27,6 @@ index cb399b7eeed..46bdf96cc98 100644
  			if err != nil {
  				recordDecodeError(s.groupResource, string(kv.Key))
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
-index e77464a061a..77c546d2fa4 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
 @@ -26,44 +26,124 @@ import (
@@ -190,7 +188,6 @@ index e77464a061a..77c546d2fa4 100644
  	}
  	return genericapirequest.Shard(parts[0])
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp_test.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp_test.go
-index 46ba04b2b0f..a72d2b0ff7b 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp_test.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp_test.go
 @@ -53,12 +53,12 @@ func TestAdjustClusterNameIfWildcard(t *testing.T) {
@@ -443,7 +440,6 @@ index 46ba04b2b0f..a72d2b0ff7b 100644
 +	}
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
-index 4cc45c9fdde..4d1bc860798 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 @@ -733,7 +733,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
@@ -464,6 +460,3 @@ index 4cc45c9fdde..4d1bc860798 100644
  		annotateDecodedObjectWith(oldObj, clusterName, shardName)
  	}
  	return curObj, oldObj, nil
--- 
-2.54.0
-

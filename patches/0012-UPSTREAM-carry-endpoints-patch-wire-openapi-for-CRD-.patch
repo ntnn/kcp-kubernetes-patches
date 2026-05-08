@@ -1,4 +1,4 @@
-From 2b12c4718398af02dcd30de6b69b35c48b11f11e Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 13:34:18 +0200
 Subject: [PATCH] UPSTREAM: <carry>: endpoints/patch: wire openapi for CRD
@@ -13,7 +13,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
  4 files changed, 107 insertions(+), 6 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go
-index 060c7cc3023..bc3fdc8c81c 100644
 --- a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go
 +++ b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go
 @@ -57,6 +57,7 @@ import (
@@ -100,7 +99,6 @@ index 060c7cc3023..bc3fdc8c81c 100644
  		return interpretStrategicMergePatchError(err)
  	}
 diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest.go b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest.go
-index 6d5a7414680..b62574baf4d 100644
 --- a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest.go
 +++ b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest.go
 @@ -43,6 +43,7 @@ import (
@@ -121,7 +119,6 @@ index 6d5a7414680..b62574baf4d 100644
  
  func (scope *RequestScope) err(err error, w http.ResponseWriter, req *http.Request) {
 diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest_test.go b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest_test.go
-index ea1c9fc4053..416d2a9bc78 100644
 --- a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest_test.go
 +++ b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest_test.go
 @@ -103,7 +103,7 @@ func TestPatchAnonymousField(t *testing.T) {
@@ -161,7 +158,6 @@ index ea1c9fc4053..416d2a9bc78 100644
  		t.Fatal(err)
  	}
 diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go b/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go
-index 75fbc6abc91..f4ae28959ee 100644
 --- a/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go
 +++ b/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go
 @@ -18,6 +18,7 @@ package openapi
@@ -257,6 +253,3 @@ index 75fbc6abc91..f4ae28959ee 100644
 +
 +	return gvkListResult
 +}
--- 
-2.54.0
-

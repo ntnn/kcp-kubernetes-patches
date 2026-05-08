@@ -1,4 +1,4 @@
-From cd1e84f35702051241d3bca1d6071c9d3c492930 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Sun, 12 Apr 2026 00:04:57 +0200
 Subject: [PATCH] FIXUP: <carry>: gc & quata patches applied
@@ -12,7 +12,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 
 diff --git a/pkg/controller/garbagecollector/garbagecollector_kcp.go b/pkg/controller/garbagecollector/garbagecollector_kcp.go
 deleted file mode 100644
-index dea5b7b0624..00000000000
 --- a/pkg/controller/garbagecollector/garbagecollector_kcp.go
 +++ /dev/null
 @@ -1,107 +0,0 @@
@@ -123,6 +122,3 @@ index dea5b7b0624..00000000000
 -		return nil
 -	}()
 -}
--- 
-2.54.0
-

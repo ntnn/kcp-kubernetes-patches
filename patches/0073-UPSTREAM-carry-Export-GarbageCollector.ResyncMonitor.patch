@@ -1,4 +1,4 @@
-From c2d854bd9bde90bd118d7298515282bc7897dce0 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Thu, 30 Apr 2026 00:17:26 +0200
 Subject: [PATCH] UPSTREAM: <carry>: Export GarbageCollector.ResyncMonitors
@@ -10,7 +10,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  1 file changed, 8 insertions(+)
 
 diff --git a/pkg/controller/garbagecollector/kcp.go b/pkg/controller/garbagecollector/kcp.go
-index f595b61945c..74bccc3599d 100644
 --- a/pkg/controller/garbagecollector/kcp.go
 +++ b/pkg/controller/garbagecollector/kcp.go
 @@ -23,8 +23,10 @@ import (
@@ -34,6 +33,3 @@ index f595b61945c..74bccc3599d 100644
 +func (gc *GarbageCollector) ResyncMonitors(logger klog.Logger, deletableResources map[schema.GroupVersionResource]struct{}) error {
 +	return gc.resyncMonitors(logger, deletableResources)
 +}
--- 
-2.54.0
-

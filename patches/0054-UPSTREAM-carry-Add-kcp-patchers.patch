@@ -1,4 +1,4 @@
-From 2a7a884826e28f8f578c22271dceb9e874acce58 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Sun, 8 Oct 2023 10:57:33 +0200
 Subject: [PATCH] UPSTREAM: <carry>: Add kcp patchers
@@ -14,7 +14,6 @@ Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
 
 diff --git a/hack/kcp/garbage_collector_patch.go b/hack/kcp/garbage_collector_patch.go
 new file mode 100644
-index 00000000000..7d267a7bb1c
 --- /dev/null
 +++ b/hack/kcp/garbage_collector_patch.go
 @@ -0,0 +1,109 @@
@@ -129,7 +128,6 @@ index 00000000000..7d267a7bb1c
 +}
 diff --git a/hack/kcp/resource_quota_controller_patch.go b/hack/kcp/resource_quota_controller_patch.go
 new file mode 100644
-index 00000000000..173997c530e
 --- /dev/null
 +++ b/hack/kcp/resource_quota_controller_patch.go
 @@ -0,0 +1,109 @@
@@ -242,6 +240,3 @@ index 00000000000..173997c530e
 +	// Finally, print the line range we need
 +	fmt.Println(strings.Join(lines[startLine-1:endLine], "\n"))
 +}
--- 
-2.54.0
-

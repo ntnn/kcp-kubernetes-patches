@@ -1,4 +1,4 @@
-From 5195907b16206af80a7c0bed1c171bee3a4325be Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Fri, 1 Sep 2023 12:17:04 +0200
 Subject: [PATCH] UPSTREAM: <carry>: INTERESTING: clusterize admission
@@ -30,7 +30,6 @@ Signed-off-by: Robert Vasek <robert.vasek@clyso.com>
  create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/validating/dispatcher_kcp.go
 
 diff --git a/plugin/pkg/admission/limitranger/admission.go b/plugin/pkg/admission/limitranger/admission.go
-index 55a65b056bb..d79dea20c8a 100644
 --- a/plugin/pkg/admission/limitranger/admission.go
 +++ b/plugin/pkg/admission/limitranger/admission.go
 @@ -91,6 +91,11 @@ func (l *LimitRanger) SetExternalKubeInformerFactory(f informers.SharedInformerF
@@ -46,7 +45,6 @@ index 55a65b056bb..d79dea20c8a 100644
  func (l *LimitRanger) SetExternalKubeClientSet(client kubernetes.Interface) {
  	l.client = client
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/attributes.go b/staging/src/k8s.io/apiserver/pkg/admission/attributes.go
-index 1d291f6b22e..cca038d97c7 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/attributes.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/attributes.go
 @@ -21,6 +21,7 @@ import (
@@ -82,7 +80,6 @@ index 1d291f6b22e..cca038d97c7 100644
  // by WithAudit decorator.
  func (record *attributesRecord) getAnnotations(maxLevel auditinternal.Level) map[string]string {
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/configuration/mutating_webhook_manager.go b/staging/src/k8s.io/apiserver/pkg/admission/configuration/mutating_webhook_manager.go
-index 3ecc00b74cb..b472177e6b1 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/configuration/mutating_webhook_manager.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/configuration/mutating_webhook_manager.go
 @@ -27,6 +27,7 @@ import (
@@ -105,7 +102,6 @@ index 3ecc00b74cb..b472177e6b1 100644
  		lister:                        informer.Lister(),
  		createMutatingWebhookAccessor: webhook.NewMutatingWebhookAccessor,
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/configuration/validating_webhook_manager.go b/staging/src/k8s.io/apiserver/pkg/admission/configuration/validating_webhook_manager.go
-index b4233211770..0dbcec7a806 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/configuration/validating_webhook_manager.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/configuration/validating_webhook_manager.go
 @@ -27,6 +27,7 @@ import (
@@ -128,7 +124,6 @@ index b4233211770..0dbcec7a806 100644
  		lister:                          informer.Lister(),
  		createValidatingWebhookAccessor: webhook.NewValidatingWebhookAccessor,
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/interfaces.go b/staging/src/k8s.io/apiserver/pkg/admission/interfaces.go
-index ba979c973f1..be735f075b8 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/interfaces.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/interfaces.go
 @@ -20,6 +20,7 @@ import (
@@ -150,7 +145,6 @@ index ba979c973f1..be735f075b8 100644
  	// "podsecuritypolicy" is the name of the plugin, "admission.k8s.io" is the name of the organization, "admit-policy" is the key name.
  	// An error is returned if the format of key is invalid. When trying to overwrite annotation with a new value, an error is returned.
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/namespace/lifecycle/admission.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/namespace/lifecycle/admission.go
-index 936a95e45cc..1d9a65df5d4 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/namespace/lifecycle/admission.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/namespace/lifecycle/admission.go
 @@ -22,6 +22,10 @@ import (
@@ -276,7 +270,6 @@ index 936a95e45cc..1d9a65df5d4 100644
  
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go
 new file mode 100644
-index 00000000000..a1264ead2d8
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/plugin_kcp.go
 @@ -0,0 +1,18 @@
@@ -299,7 +292,6 @@ index 00000000000..a1264ead2d8
 +	c.bindingInformer = i
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission.go
-index 5455b414eda..4e0194a7b78 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission.go
 @@ -160,10 +160,11 @@ func (a *QuotaAdmission) ValidateInitialization() error {
@@ -320,7 +312,6 @@ index 5455b414eda..4e0194a7b78 100644
  
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission_kcp.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission_kcp.go
 new file mode 100644
-index 00000000000..2ecd590eee4
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission_kcp.go
 @@ -0,0 +1,32 @@
@@ -357,7 +348,6 @@ index 00000000000..2ecd590eee4
 +	a.quotaAccessor.hasSynced = informer.HasSynced
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/resource_access.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/resource_access.go
-index fd4c102e6d5..86839ceb6d4 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/resource_access.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/resource_access.go
 @@ -19,6 +19,7 @@ package resourcequota
@@ -433,7 +423,6 @@ index fd4c102e6d5..86839ceb6d4 100644
  		quota := items[i]
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook_kcp.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook_kcp.go
 new file mode 100644
-index 00000000000..c37e349e951
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook_kcp.go
 @@ -0,0 +1,19 @@
@@ -458,7 +447,6 @@ index 00000000000..c37e349e951
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/mutating/dispatcher_kcp.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/mutating/dispatcher_kcp.go
 new file mode 100644
-index 00000000000..32571bbc77b
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/mutating/dispatcher_kcp.go
 @@ -0,0 +1,27 @@
@@ -491,7 +479,6 @@ index 00000000000..32571bbc77b
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/validating/dispatcher_kcp.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/validating/dispatcher_kcp.go
 new file mode 100644
-index 00000000000..5788c731d29
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/validating/dispatcher_kcp.go
 @@ -0,0 +1,27 @@
@@ -522,6 +509,3 @@ index 00000000000..5788c731d29
 +func NewValidatingDispatcher(p *Plugin) func(cm *webhookutil.ClientManager) generic.Dispatcher {
 +	return newValidatingDispatcher(p)
 +}
--- 
-2.54.0
-

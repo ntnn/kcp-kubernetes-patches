@@ -1,4 +1,4 @@
-From 0e315cb39009dec61a32a682cfe24e161b4593de Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 11:28:41 +0200
 Subject: [PATCH] UPSTREAM: <carry>: add client and informer hacks
@@ -15,7 +15,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go b/staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go
 new file mode 100644
-index 00000000000..ed1faea8c3a
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go
 @@ -0,0 +1,333 @@
@@ -354,7 +353,6 @@ index 00000000000..ed1faea8c3a
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/dynamichack/adapter.go b/staging/src/k8s.io/apiserver/pkg/dynamichack/adapter.go
 new file mode 100644
-index 00000000000..a14946bfa44
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/dynamichack/adapter.go
 @@ -0,0 +1,59 @@
@@ -419,7 +417,6 @@ index 00000000000..a14946bfa44
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go b/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go
 new file mode 100644
-index 00000000000..8b4ca55865a
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go
 @@ -0,0 +1,191 @@
@@ -614,6 +611,3 @@ index 00000000000..8b4ca55865a
 +func (s *hack) ClusterAware() kcpkubernetesinformers.SharedInformerFactory {
 +	return s.clusterAware
 +}
--- 
-2.54.0
-

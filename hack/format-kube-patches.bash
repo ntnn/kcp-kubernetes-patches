@@ -30,7 +30,7 @@ format_patches() {
         # remove the "carry: drop: ..." commits; matching the leading
         # patch counter is required since some commits contain "drop" or
         # every "carry..drop"
-        find ./patches -iregex '.*/[0-9]*-carry-drop-.*' -delete
+        find ../patches -iregex '.*/[0-9]*-carry-drop-.*' -delete
     )
 }
 

@@ -27,8 +27,10 @@ format_patches() {
         # diff and they are not required for applying
         _sed -e '/^index/d' ../patches/*.patch
 
-        # remove the "carry: drop: ..." commits
-        find ../patches -iname 'carry*drop*' -delete
+        # remove the "carry: drop: ..." commits; matching the leading
+        # patch counter is required since some commits contain "drop" or
+        # every "carry..drop"
+        find ./patches -iregex '.*/[0-9]*-carry-drop-.*' -delete
     )
 }
 

@@ -11,7 +11,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
  2 files changed, 47 insertions(+), 17 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
-index 722a312270a..30b714b0090 100644
 --- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 @@ -263,10 +263,25 @@ const (
@@ -113,7 +112,6 @@ index 722a312270a..30b714b0090 100644
  			e.KeyFunc = func(ctx context.Context, name string) (string, error) {
  				return NoNamespaceKeyFunc(ctx, prefix, name)
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/rest/resttest/resttest.go b/staging/src/k8s.io/apiserver/pkg/registry/rest/resttest/resttest.go
-index 000bb52497a..56acaed2eb9 100644
 --- a/staging/src/k8s.io/apiserver/pkg/registry/rest/resttest/resttest.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/rest/resttest/resttest.go
 @@ -25,6 +25,7 @@ import (

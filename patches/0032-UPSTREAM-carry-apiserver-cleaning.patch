@@ -10,7 +10,6 @@ Subject: [PATCH 32/73] UPSTREAM: <carry>: apiserver cleaning
  3 files changed, 7 insertions(+), 6 deletions(-)
 
 diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
-index 9a43efd60bf..d3d35a2a2af 100644
 --- a/pkg/kubeapiserver/options/authentication.go
 +++ b/pkg/kubeapiserver/options/authentication.go
 @@ -717,7 +717,7 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
@@ -23,7 +22,6 @@ index 9a43efd60bf..d3d35a2a2af 100644
  	if authenticatorConfig.BootstrapToken {
  		authenticatorConfig.BootstrapTokenAuthenticator = bootstrap.NewTokenAuthenticator(
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_options_getter_kcp.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_options_getter_kcp.go
-index 615d463766b..d99300de582 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_options_getter_kcp.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_options_getter_kcp.go
 @@ -8,6 +8,7 @@ import (
@@ -46,7 +44,6 @@ index 615d463766b..d99300de582 100644
  		return ret, err
  	}
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/feature.go b/staging/src/k8s.io/apiserver/pkg/server/options/feature.go
-index 22f8c5c01cb..a5b1372da47 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/options/feature.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/options/feature.go
 @@ -21,11 +21,11 @@ import (

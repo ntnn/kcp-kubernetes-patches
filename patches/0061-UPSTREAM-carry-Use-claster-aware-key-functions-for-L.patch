@@ -14,7 +14,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 
 diff --git a/staging/src/k8s.io/client-go/tools/cache/keyfunc.go b/staging/src/k8s.io/client-go/tools/cache/keyfunc.go
 new file mode 100644
-index 00000000000..cb64106fca6
 --- /dev/null
 +++ b/staging/src/k8s.io/client-go/tools/cache/keyfunc.go
 @@ -0,0 +1,94 @@
@@ -113,7 +112,6 @@ index 00000000000..cb64106fca6
 +	}
 +}
 diff --git a/staging/src/k8s.io/client-go/tools/cache/reflector.go b/staging/src/k8s.io/client-go/tools/cache/reflector.go
-index af2c7a22d07..007182606bc 100644
 --- a/staging/src/k8s.io/client-go/tools/cache/reflector.go
 +++ b/staging/src/k8s.io/client-go/tools/cache/reflector.go
 @@ -208,7 +208,7 @@ func DefaultWatchErrorHandler(ctx context.Context, r *Reflector, err error) {

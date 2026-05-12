@@ -10,7 +10,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  1 file changed, 10 insertions(+), 9 deletions(-)
 
 diff --git a/pkg/controller/garbagecollector/patch.go b/pkg/controller/garbagecollector/patch.go
-index 25d8b208513..2fe7303305d 100644
 --- a/pkg/controller/garbagecollector/patch.go
 +++ b/pkg/controller/garbagecollector/patch.go
 @@ -27,33 +27,34 @@ import (

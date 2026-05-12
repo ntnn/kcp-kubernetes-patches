@@ -11,7 +11,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  1 file changed, 8 insertions(+)
 
 diff --git a/pkg/controller/garbagecollector/kcp.go b/pkg/controller/garbagecollector/kcp.go
-index f595b61945c..74bccc3599d 100644
 --- a/pkg/controller/garbagecollector/kcp.go
 +++ b/pkg/controller/garbagecollector/kcp.go
 @@ -23,8 +23,10 @@ import (

@@ -10,7 +10,6 @@ On-behalf-of: @SAP christoph.mewes@sap.com
  1 file changed, 9 insertions(+)
 
 diff --git a/pkg/registry/authentication/tokenreview/storage.go b/pkg/registry/authentication/tokenreview/storage.go
-index 1c9c328603f..989e2daa2a7 100644
 --- a/pkg/registry/authentication/tokenreview/storage.go
 +++ b/pkg/registry/authentication/tokenreview/storage.go
 @@ -94,6 +94,15 @@ func (r *REST) Create(ctx context.Context, obj runtime.Object, createValidation

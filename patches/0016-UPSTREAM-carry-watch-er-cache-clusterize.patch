@@ -31,7 +31,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  create mode 100644 staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config_kcp.go
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/storage_factory.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/storage_factory.go
-index d36dd263ff7..cbfe64e4ce3 100644
 --- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/storage_factory.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/storage_factory.go
 @@ -17,6 +17,7 @@ limitations under the License.
@@ -84,7 +83,6 @@ index d36dd263ff7..cbfe64e4ce3 100644
  		cacher, err := cacherstorage.NewCacherFromConfig(cacherConfig)
  		if err != nil {
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
-index 30b714b0090..bc356fdc440 100644
 --- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 @@ -1610,17 +1610,17 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
@@ -119,7 +117,6 @@ index 30b714b0090..bc356fdc440 100644
  	klog.V(2).InfoS("Monitoring resource count at path", "resource", resourceName, "path", "<storage-prefix>/"+prefix)
  	stopCh := make(chan struct{})
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store_test.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store_test.go
-index bb90542a4f3..1766bff5aa5 100644
 --- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store_test.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store_test.go
 @@ -2445,16 +2445,19 @@ func newTestGenericStoreRegistry(t *testing.T, scheme *runtime.Scheme, hasCacheE
@@ -152,7 +149,6 @@ index bb90542a4f3..1766bff5aa5 100644
  		cacher, err := cacherstorage.NewCacherFromConfig(config)
  		if err != nil {
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/storage_decorator.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/storage_decorator.go
-index 4c2b2fc0ed5..acaa17a7c05 100644
 --- a/staging/src/k8s.io/apiserver/pkg/registry/generic/storage_decorator.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/storage_decorator.go
 @@ -17,6 +17,8 @@ limitations under the License.
@@ -183,7 +179,6 @@ index 4c2b2fc0ed5..acaa17a7c05 100644
  	newListFunc func() runtime.Object,
  	getAttrsFunc storage.AttrFunc,
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/testing/tester.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/testing/tester.go
-index dc2172eded8..5467d1329a0 100644
 --- a/staging/src/k8s.io/apiserver/pkg/registry/generic/testing/tester.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/testing/tester.go
 @@ -28,6 +28,7 @@ import (
@@ -216,7 +211,6 @@ index dc2172eded8..5467d1329a0 100644
  	if err != nil {
  		return err
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
-index a5f7ab6d692..4adde151f45 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
 @@ -21,6 +21,7 @@ import (
@@ -363,7 +357,6 @@ index a5f7ab6d692..4adde151f45 100644
  	result chan watch.Event
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_kcp.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_kcp.go
 new file mode 100644
-index 00000000000..bc9b2dfd1e4
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_kcp.go
 @@ -0,0 +1,27 @@
@@ -395,7 +388,6 @@ index 00000000000..bc9b2dfd1e4
 +	return lw.resourcePrefix + "/" + lw.kcpExtraStorageMetadata.Cluster.Name.String()
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go
-index e037ed4ab8d..d69f358d09a 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go
 @@ -29,6 +29,7 @@ import (
@@ -453,7 +445,6 @@ index e037ed4ab8d..d69f358d09a 100644
  
  func (lw *listerWatcher) IsWatchListSemanticsUnSupported() bool {
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
-index 620b0f36bd2..90e52cc027b 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
 @@ -102,7 +102,7 @@ type watchCache struct {
@@ -507,7 +498,6 @@ index 620b0f36bd2..90e52cc027b 100644
  		}
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp.go
 new file mode 100644
-index 00000000000..648ffc2a6f3
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp.go
 @@ -0,0 +1,38 @@
@@ -551,7 +541,6 @@ index 00000000000..648ffc2a6f3
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_test.go
 new file mode 100644
-index 00000000000..c21240ff8f9
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_test.go
 @@ -0,0 +1,107 @@
@@ -663,7 +652,6 @@ index 00000000000..c21240ff8f9
 +	return obj
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
-index 1c090269c55..434c47d6211 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
 @@ -115,7 +115,7 @@ func (w *testWatchCache) getCacheIntervalForEvents(resourceVersion uint64, opts
@@ -676,7 +664,6 @@ index 1c090269c55..434c47d6211 100644
  	}
  	getAttrsFunc := func(obj runtime.Object) (labels.Set, fields.Set, error) {
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
-index cf16606bc51..e21cdaae543 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 @@ -35,7 +35,9 @@ import (
@@ -764,7 +751,6 @@ index cf16606bc51..e21cdaae543 100644
  	return curObj, oldObj, nil
  }
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
-index c948d641164..3ed838ad8d1 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config.go
 @@ -102,6 +102,11 @@ type ConfigForResource struct {
@@ -781,7 +767,6 @@ index c948d641164..3ed838ad8d1 100644
  // ForResource specializes to the given resource
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config_kcp.go b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config_kcp.go
 new file mode 100644
-index 00000000000..8359bebcb73
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/config_kcp.go
 @@ -0,0 +1,12 @@

@@ -12,7 +12,6 @@ Signed-off-by: Marko Mudrinić <mudrinic.mare@gmail.com>
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go b/staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go
-index ed1faea8c3a..05488e610a3 100644
 --- a/staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go
 +++ b/staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go
 @@ -77,7 +77,7 @@ import (

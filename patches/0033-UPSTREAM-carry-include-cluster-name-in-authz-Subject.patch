@@ -10,7 +10,6 @@ On-behalf-of: @SAP christoph.mewes@sap.com
  1 file changed, 11 insertions(+)
 
 diff --git a/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go b/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go
-index 3df8e580e44..2e74e956a53 100644
 --- a/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go
 +++ b/staging/src/k8s.io/apiserver/plugin/pkg/authorizer/webhook/webhook.go
 @@ -41,6 +41,7 @@ import (

@@ -10,7 +10,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
  1 file changed, 6 insertions(+), 5 deletions(-)
 
 diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
-index 73f6e1f390d..743a89dc7a0 100644
 --- a/pkg/kubeapiserver/options/authentication.go
 +++ b/pkg/kubeapiserver/options/authentication.go
 @@ -28,6 +28,8 @@ import (

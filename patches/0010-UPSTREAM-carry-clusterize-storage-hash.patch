@@ -10,7 +10,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
  2 files changed, 9 insertions(+), 3 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/discovery/storageversionhash.go b/staging/src/k8s.io/apiserver/pkg/endpoints/discovery/storageversionhash.go
-index f47e9632b71..eedef851591 100644
 --- a/staging/src/k8s.io/apiserver/pkg/endpoints/discovery/storageversionhash.go
 +++ b/staging/src/k8s.io/apiserver/pkg/endpoints/discovery/storageversionhash.go
 @@ -19,14 +19,19 @@ package discovery
@@ -36,7 +35,6 @@ index f47e9632b71..eedef851591 100644
  	// Assuming there are N kinds in the cluster, and the hash is X-byte long,
  	// the chance of colliding hash P(N,X) approximates to 1-e^(-(N^2)/2^(8X+1)).
 diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/installer.go b/staging/src/k8s.io/apiserver/pkg/endpoints/installer.go
-index 56c392fd057..13e7a0726a7 100644
 --- a/staging/src/k8s.io/apiserver/pkg/endpoints/installer.go
 +++ b/staging/src/k8s.io/apiserver/pkg/endpoints/installer.go
 @@ -26,6 +26,7 @@ import (

@@ -11,7 +11,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  2 files changed, 8 insertions(+), 5 deletions(-)
 
 diff --git a/pkg/controller/garbagecollector/kcp.go b/pkg/controller/garbagecollector/kcp.go
-index 4f9c269fdc9..5accd153cf9 100644
 --- a/pkg/controller/garbagecollector/kcp.go
 +++ b/pkg/controller/garbagecollector/kcp.go
 @@ -32,3 +32,7 @@ func ClusterFrom(ctx context.Context) logicalcluster.Name {
@@ -23,7 +22,6 @@ index 4f9c269fdc9..5accd153cf9 100644
 +	return WithCluster(context.TODO(), ref.Cluster)
 +}
 diff --git a/pkg/controller/garbagecollector/operations.go b/pkg/controller/garbagecollector/operations.go
-index a3000252728..a9758b94d3b 100644
 --- a/pkg/controller/garbagecollector/operations.go
 +++ b/pkg/controller/garbagecollector/operations.go
 @@ -17,7 +17,6 @@ limitations under the License.

@@ -9,7 +9,6 @@ Subject: [PATCH 59/73] CARRY: Fix SA lookups
  2 files changed, 100 insertions(+), 67 deletions(-)
 
 diff --git a/pkg/kubeapiserver/authenticator/config.go b/pkg/kubeapiserver/authenticator/config.go
-index a2d94019099..c80bd8fa6e1 100644
 --- a/pkg/kubeapiserver/authenticator/config.go
 +++ b/pkg/kubeapiserver/authenticator/config.go
 @@ -147,7 +147,7 @@ func (config Config) New(serverLifecycle context.Context) (authenticator.Request
@@ -38,7 +37,6 @@ index a2d94019099..c80bd8fa6e1 100644
  }
  
 diff --git a/pkg/serviceaccount/claims.go b/pkg/serviceaccount/claims.go
-index 31903457c98..9538bd03525 100644
 --- a/pkg/serviceaccount/claims.go
 +++ b/pkg/serviceaccount/claims.go
 @@ -134,13 +134,24 @@ func Claims(sa core.ServiceAccount, pod *core.Pod, secret *core.Secret, node *co

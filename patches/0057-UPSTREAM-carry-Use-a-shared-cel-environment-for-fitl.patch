@@ -12,7 +12,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  2 files changed, 5 insertions(+), 2 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook.go
-index bf646d00801..7e860af5bd4 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook.go
 @@ -21,7 +21,6 @@ import (
@@ -33,7 +32,6 @@ index bf646d00801..7e860af5bd4 100644
  }
  
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook_kcp.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook_kcp.go
-index c37e349e951..2511b1ceb58 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook_kcp.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/webhook_kcp.go
 @@ -1,6 +1,8 @@

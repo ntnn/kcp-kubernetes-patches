@@ -23,7 +23,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  1 file changed, 1 deletion(-)
 
 diff --git a/staging/src/k8s.io/code-generator/kube_codegen.sh b/staging/src/k8s.io/code-generator/kube_codegen.sh
-index 95c28e1a36d..26938d0de84 100755
 --- a/staging/src/k8s.io/code-generator/kube_codegen.sh
 +++ b/staging/src/k8s.io/code-generator/kube_codegen.sh
 @@ -125,7 +125,6 @@ function kube::codegen::gen_helpers() {

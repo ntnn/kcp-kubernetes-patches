@@ -13,7 +13,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/kcp/crd_context.go b/staging/src/k8s.io/apiserver/pkg/kcp/crd_context.go
 new file mode 100644
-index 00000000000..13ed9c10648
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/kcp/crd_context.go
 @@ -0,0 +1,43 @@
@@ -61,7 +60,6 @@ index 00000000000..13ed9c10648
 +	return v.(bool)
 +}
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
-index 24294daaf3b..170fd2cb37a 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
 @@ -26,8 +26,11 @@ import (

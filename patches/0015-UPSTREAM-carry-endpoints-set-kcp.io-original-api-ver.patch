@@ -12,7 +12,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
  create mode 100644 staging/src/k8s.io/apiserver/pkg/endpoints/handlers/response_kcp.go
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/response.go b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/response.go
-index f36bb403909..e4ce8568818 100644
 --- a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/response.go
 +++ b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/response.go
 @@ -256,10 +256,10 @@ func doTransformObject(ctx context.Context, obj runtime.Object, opts interface{}
@@ -68,7 +67,6 @@ index f36bb403909..e4ce8568818 100644
  		})
 diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/response_kcp.go b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/response_kcp.go
 new file mode 100644
-index 00000000000..1843367e5f9
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/response_kcp.go
 @@ -0,0 +1,63 @@

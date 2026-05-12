@@ -10,7 +10,6 @@ Co-authored-by: Copilot <175728472+Copilot@users.noreply.github.com>
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/pkg/registry/rbac/validation/kcp_test.go b/pkg/registry/rbac/validation/kcp_test.go
-index 452cccf0154..59e114416ea 100644
 --- a/pkg/registry/rbac/validation/kcp_test.go
 +++ b/pkg/registry/rbac/validation/kcp_test.go
 @@ -248,7 +248,7 @@ func TestAppliesToUserWithWarrantsAndScopes(t *testing.T) {

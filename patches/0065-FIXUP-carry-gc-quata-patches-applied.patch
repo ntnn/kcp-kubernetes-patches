@@ -12,7 +12,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 
 diff --git a/pkg/controller/garbagecollector/garbagecollector_kcp.go b/pkg/controller/garbagecollector/garbagecollector_kcp.go
 deleted file mode 100644
-index dea5b7b0624..00000000000
 --- a/pkg/controller/garbagecollector/garbagecollector_kcp.go
 +++ /dev/null
 @@ -1,107 +0,0 @@

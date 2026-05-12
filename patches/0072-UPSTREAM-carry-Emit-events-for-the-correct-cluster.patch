@@ -12,7 +12,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  3 files changed, 69 insertions(+), 12 deletions(-)
 
 diff --git a/pkg/controller/garbagecollector/garbagecollector.go b/pkg/controller/garbagecollector/garbagecollector.go
-index b04cab5c588..38eae3f50d3 100644
 --- a/pkg/controller/garbagecollector/garbagecollector.go
 +++ b/pkg/controller/garbagecollector/garbagecollector.go
 @@ -24,6 +24,7 @@ import (
@@ -88,7 +87,6 @@ index b04cab5c588..38eae3f50d3 100644
  
  	logger := klog.FromContext(ctx)
 diff --git a/pkg/controller/garbagecollector/graph_builder.go b/pkg/controller/garbagecollector/graph_builder.go
-index 7ee337a4be0..a194579937e 100644
 --- a/pkg/controller/garbagecollector/graph_builder.go
 +++ b/pkg/controller/garbagecollector/graph_builder.go
 @@ -43,6 +43,7 @@ import (
@@ -115,7 +113,6 @@ index 7ee337a4be0..a194579937e 100644
  	invalidIdentity := objectReference{
  		OwnerReference: metav1.OwnerReference{
 diff --git a/pkg/controller/garbagecollector/kcp.go b/pkg/controller/garbagecollector/kcp.go
-index 5accd153cf9..f595b61945c 100644
 --- a/pkg/controller/garbagecollector/kcp.go
 +++ b/pkg/controller/garbagecollector/kcp.go
 @@ -19,7 +19,12 @@ package garbagecollector

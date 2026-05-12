@@ -12,7 +12,6 @@ Subject: [PATCH 55/73] UPSTREAM: <carry>: gc & quata patches applied
 
 diff --git a/pkg/controller/garbagecollector/garbagecollector_kcp.go b/pkg/controller/garbagecollector/garbagecollector_kcp.go
 new file mode 100644
-index 00000000000..dea5b7b0624
 --- /dev/null
 +++ b/pkg/controller/garbagecollector/garbagecollector_kcp.go
 @@ -0,0 +1,107 @@
@@ -125,7 +124,6 @@ index 00000000000..dea5b7b0624
 +}
 diff --git a/pkg/controller/resourcequota/resource_quota_controller_kcp.go b/pkg/controller/resourcequota/resource_quota_controller_kcp.go
 new file mode 100644
-index 00000000000..6b0aea53697
 --- /dev/null
 +++ b/pkg/controller/resourcequota/resource_quota_controller_kcp.go
 @@ -0,0 +1,118 @@

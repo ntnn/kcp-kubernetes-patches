@@ -16,7 +16,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 
 diff --git a/pkg/registry/rbac/validation/kcp.go b/pkg/registry/rbac/validation/kcp.go
 new file mode 100644
-index 00000000000..6695bcb42e9
 --- /dev/null
 +++ b/pkg/registry/rbac/validation/kcp.go
 @@ -0,0 +1,108 @@
@@ -130,7 +129,6 @@ index 00000000000..6695bcb42e9
 +}
 diff --git a/pkg/registry/rbac/validation/kcp_test.go b/pkg/registry/rbac/validation/kcp_test.go
 new file mode 100644
-index 00000000000..9142fc6f69d
 --- /dev/null
 +++ b/pkg/registry/rbac/validation/kcp_test.go
 @@ -0,0 +1,232 @@
@@ -367,7 +365,6 @@ index 00000000000..9142fc6f69d
 +	}
 +}
 diff --git a/pkg/registry/rbac/validation/rule.go b/pkg/registry/rbac/validation/rule.go
-index 5322c7419fe..aa32101bb2e 100644
 --- a/pkg/registry/rbac/validation/rule.go
 +++ b/pkg/registry/rbac/validation/rule.go
 @@ -184,7 +184,7 @@ func (r *DefaultRuleResolver) VisitRulesFor(ctx context.Context, user user.Info,
@@ -401,7 +398,6 @@ index 5322c7419fe..aa32101bb2e 100644
  		}
  	}
 diff --git a/pkg/registry/rbac/validation/rule_test.go b/pkg/registry/rbac/validation/rule_test.go
-index 459d9c21ae5..fe9c963600a 100644
 --- a/pkg/registry/rbac/validation/rule_test.go
 +++ b/pkg/registry/rbac/validation/rule_test.go
 @@ -17,6 +17,7 @@ limitations under the License.

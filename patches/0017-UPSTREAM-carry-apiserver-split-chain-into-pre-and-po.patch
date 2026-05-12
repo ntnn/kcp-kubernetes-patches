@@ -10,7 +10,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
  1 file changed, 11 insertions(+), 2 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/config.go b/staging/src/k8s.io/apiserver/pkg/server/config.go
-index d10415b945f..a4afd533f18 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/config.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/config.go
 @@ -1009,16 +1009,25 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G

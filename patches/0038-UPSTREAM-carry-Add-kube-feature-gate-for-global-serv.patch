@@ -16,7 +16,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  2 files changed, 7 insertions(+), 1 deletion(-)
 
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
-index a7703d3ca33..6ab1a3419a5 100644
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
 @@ -2155,6 +2155,9 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
@@ -30,7 +29,6 @@ index a7703d3ca33..6ab1a3419a5 100644
  
  // defaultKubernetesFeatureGateDependencies enumerates the dependencies of any feature gate that
 diff --git a/pkg/registry/rbac/validation/kcp.go b/pkg/registry/rbac/validation/kcp.go
-index b31c2e7f3a9..967f671c90b 100644
 --- a/pkg/registry/rbac/validation/kcp.go
 +++ b/pkg/registry/rbac/validation/kcp.go
 @@ -12,6 +12,8 @@ import (

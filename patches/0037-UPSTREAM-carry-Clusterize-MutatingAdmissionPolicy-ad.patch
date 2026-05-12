@@ -12,7 +12,6 @@ Signed-off-by: Robert Vasek <robert.vasek@clyso.com>
  2 files changed, 14 insertions(+), 2 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/accessor.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/accessor.go
-index ff342623a95..471223295e3 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/accessor.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/accessor.go
 @@ -17,6 +17,7 @@ limitations under the License.
@@ -46,7 +45,6 @@ index ff342623a95..471223295e3 100644
  	return types.NamespacedName{
  		Namespace: "",
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/plugin.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/plugin.go
-index 20e4d2d0c47..7e366bca46e 100644
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/plugin.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/plugin.go
 @@ -18,9 +18,11 @@ package mutating

@@ -12,7 +12,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
  2 files changed, 127 insertions(+), 8 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go b/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go
-index 7fdeb8fd634..508ebf147c9 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go
 @@ -47,6 +47,8 @@ import (
@@ -42,7 +41,6 @@ index 7fdeb8fd634..508ebf147c9 100644
  	// OpenAPIV3VersionedService controls the /openapi/v3 endpoint and can be used to update the served spec.
  	// It is set during PrepareRun if `openAPIConfig` is non-nil unless `skipOpenAPIInstallation` is true.
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/routes/openapi.go b/staging/src/k8s.io/apiserver/pkg/server/routes/openapi.go
-index 12c8b1ad910..f24b88ea7d8 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/routes/openapi.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/routes/openapi.go
 @@ -17,12 +17,18 @@ limitations under the License.

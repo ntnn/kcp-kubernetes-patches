@@ -10,7 +10,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
  1 file changed, 15 insertions(+), 1 deletion(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/storage/storage_factory.go b/staging/src/k8s.io/apiserver/pkg/server/storage/storage_factory.go
-index f4ccc62f65c..1059388ef02 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/storage/storage_factory.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/storage/storage_factory.go
 @@ -71,6 +71,10 @@ type DefaultStorageFactory struct {

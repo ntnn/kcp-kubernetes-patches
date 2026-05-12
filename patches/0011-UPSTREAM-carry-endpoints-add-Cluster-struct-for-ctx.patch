@@ -12,7 +12,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/request/context_cluster_kcp.go b/staging/src/k8s.io/apiserver/pkg/endpoints/request/context_cluster_kcp.go
 new file mode 100644
-index 00000000000..efa4517ecfd
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/endpoints/request/context_cluster_kcp.go
 @@ -0,0 +1,110 @@

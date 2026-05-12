@@ -15,7 +15,6 @@ Subject: [PATCH 25/73] UPSTREAM: <carry>: generic cleanup
  create mode 100644 pkg/controlplane/apiserver/samples/generic/server/serviceaccounts_kcp.go
 
 diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/config.go
-index d5a7916bbcf..32768ca479f 100644
 --- a/pkg/controlplane/apiserver/config.go
 +++ b/pkg/controlplane/apiserver/config.go
 @@ -29,7 +29,6 @@ import (
@@ -74,7 +73,6 @@ index d5a7916bbcf..32768ca479f 100644
  	if lastErr = s.Authentication.ApplyTo(ctx, &genericConfig.Authentication, genericConfig.SecureServing, genericConfig.EgressSelector, genericConfig.OpenAPIConfig, genericConfig.OpenAPIV3Config, clusterClient, versionedInformers, genericConfig.APIServerID); lastErr != nil {
  		return
 diff --git a/pkg/controlplane/apiserver/samples/generic/server/server.go b/pkg/controlplane/apiserver/samples/generic/server/server.go
-index be6af3f94d4..f4b74d5143e 100644
 --- a/pkg/controlplane/apiserver/samples/generic/server/server.go
 +++ b/pkg/controlplane/apiserver/samples/generic/server/server.go
 @@ -133,7 +133,7 @@ func NewOptions() *options.Options {
@@ -88,7 +86,6 @@ index be6af3f94d4..f4b74d5143e 100644
  }
 diff --git a/pkg/controlplane/apiserver/samples/generic/server/serviceaccounts_kcp.go b/pkg/controlplane/apiserver/samples/generic/server/serviceaccounts_kcp.go
 new file mode 100644
-index 00000000000..ce16964c00b
 --- /dev/null
 +++ b/pkg/controlplane/apiserver/samples/generic/server/serviceaccounts_kcp.go
 @@ -0,0 +1,60 @@
@@ -153,7 +150,6 @@ index 00000000000..ce16964c00b
 +	return nil, apierrors.NewNotFound(v1.Resource("nodes"), name)
 +}
 diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
-index c22dcb94312..9a43efd60bf 100644
 --- a/pkg/kubeapiserver/options/authentication.go
 +++ b/pkg/kubeapiserver/options/authentication.go
 @@ -50,7 +50,6 @@ import (
@@ -174,7 +170,6 @@ index c22dcb94312..9a43efd60bf 100644
  	// ExternalPublicKeysGetter is mutually exclusive with KeyFiles.
  	ExternalPublicKeysGetter serviceaccount.PublicKeysGetter
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation.go
-index d853d52a85b..3d8170612b3 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation.go
 @@ -627,7 +627,7 @@ func hasValidConversionReviewVersionOrEmpty(versions []string) bool {
@@ -214,7 +209,6 @@ index d853d52a85b..3d8170612b3 100644
  	}
  	return allErrs
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go b/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go
-index 508ebf147c9..12537b00305 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go
 @@ -465,7 +465,7 @@ func (s *GenericAPIServer) PrepareRun() preparedGenericAPIServer {
@@ -227,7 +221,6 @@ index 508ebf147c9..12537b00305 100644
  
  	return preparedGenericAPIServer{s}
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/feature.go b/staging/src/k8s.io/apiserver/pkg/server/options/feature.go
-index a5b1372da47..22f8c5c01cb 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/options/feature.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/options/feature.go
 @@ -21,11 +21,11 @@ import (

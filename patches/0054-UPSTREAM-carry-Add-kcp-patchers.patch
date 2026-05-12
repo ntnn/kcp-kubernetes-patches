@@ -14,7 +14,6 @@ Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
 
 diff --git a/hack/kcp/garbage_collector_patch.go b/hack/kcp/garbage_collector_patch.go
 new file mode 100644
-index 00000000000..7d267a7bb1c
 --- /dev/null
 +++ b/hack/kcp/garbage_collector_patch.go
 @@ -0,0 +1,109 @@
@@ -129,7 +128,6 @@ index 00000000000..7d267a7bb1c
 +}
 diff --git a/hack/kcp/resource_quota_controller_patch.go b/hack/kcp/resource_quota_controller_patch.go
 new file mode 100644
-index 00000000000..173997c530e
 --- /dev/null
 +++ b/hack/kcp/resource_quota_controller_patch.go
 @@ -0,0 +1,109 @@

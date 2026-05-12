@@ -10,7 +10,6 @@ On-behalf-of: SAP mangirdas.judeikis@sap.com
  1 file changed, 20 insertions(+), 5 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/config.go b/staging/src/k8s.io/apiserver/pkg/server/config.go
-index 58521c5fefa..9458953ce84 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/config.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/config.go
 @@ -1010,16 +1010,24 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G

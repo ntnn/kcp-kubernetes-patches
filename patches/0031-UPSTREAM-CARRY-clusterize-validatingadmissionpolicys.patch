@@ -10,7 +10,6 @@ Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
  1 file changed, 32 insertions(+), 13 deletions(-)
 
 diff --git a/pkg/controller/validatingadmissionpolicystatus/controller.go b/pkg/controller/validatingadmissionpolicystatus/controller.go
-index 11778e7feef..f6a305405c9 100644
 --- a/pkg/controller/validatingadmissionpolicystatus/controller.go
 +++ b/pkg/controller/validatingadmissionpolicystatus/controller.go
 @@ -29,10 +29,13 @@ import (

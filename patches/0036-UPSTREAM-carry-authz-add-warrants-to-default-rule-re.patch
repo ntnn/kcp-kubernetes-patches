@@ -12,7 +12,6 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
  3 files changed, 464 insertions(+), 37 deletions(-)
 
 diff --git a/pkg/registry/rbac/validation/kcp.go b/pkg/registry/rbac/validation/kcp.go
-index 6695bcb42e9..b31c2e7f3a9 100644
 --- a/pkg/registry/rbac/validation/kcp.go
 +++ b/pkg/registry/rbac/validation/kcp.go
 @@ -2,10 +2,12 @@ package validation
@@ -285,7 +284,6 @@ index 6695bcb42e9..b31c2e7f3a9 100644
 +	return pu
 +}
 diff --git a/pkg/registry/rbac/validation/kcp_test.go b/pkg/registry/rbac/validation/kcp_test.go
-index 9142fc6f69d..7eaf73c2005 100644
 --- a/pkg/registry/rbac/validation/kcp_test.go
 +++ b/pkg/registry/rbac/validation/kcp_test.go
 @@ -4,8 +4,11 @@ import (
@@ -656,7 +654,6 @@ index 9142fc6f69d..7eaf73c2005 100644
  		})
  	}
 diff --git a/pkg/registry/rbac/validation/rule.go b/pkg/registry/rbac/validation/rule.go
-index aa32101bb2e..44f78639ad2 100644
 --- a/pkg/registry/rbac/validation/rule.go
 +++ b/pkg/registry/rbac/validation/rule.go
 @@ -262,7 +262,7 @@ func (r *DefaultRuleResolver) GetRoleReferenceRules(ctx context.Context, roleRef

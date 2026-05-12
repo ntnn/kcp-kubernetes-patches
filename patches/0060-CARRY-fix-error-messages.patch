@@ -13,7 +13,6 @@ Signed-off-by: Marko Mudrinić <mudrinic.mare@gmail.com>
  2 files changed, 2 insertions(+), 4 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
-index 5649b80510c..cbc670047d5 100644
 --- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 @@ -1539,8 +1539,8 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
@@ -28,7 +27,6 @@ index 5649b80510c..cbc670047d5 100644
  
  	if e.TableConvertor == nil {
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
-index a1f96b60ca7..cb399b7eeed 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 @@ -28,7 +28,6 @@ import (

@@ -13,7 +13,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 
 diff --git a/pkg/controller/garbagecollector/kcp.go b/pkg/controller/garbagecollector/kcp.go
 new file mode 100644
-index 00000000000..4f9c269fdc9
 --- /dev/null
 +++ b/pkg/controller/garbagecollector/kcp.go
 @@ -0,0 +1,34 @@

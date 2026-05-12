@@ -12,7 +12,6 @@ Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
  3 files changed, 9 insertions(+), 26 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_test.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_test.go
-index 53563d399e3..61c0201faed 100644
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_test.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_handler_test.go
 @@ -515,7 +515,7 @@ func testHandlerConversion(t *testing.T, enableWatchCache bool) {
@@ -34,7 +33,6 @@ index 53563d399e3..61c0201faed 100644
  			t.Fatalf("failed to convert to apply model: %v", err)
  		}
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/admission.go b/staging/src/k8s.io/apiserver/pkg/server/options/admission.go
-index 2a7ddf4d8e0..9beb880c62a 100644
 --- a/staging/src/k8s.io/apiserver/pkg/server/options/admission.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/options/admission.go
 @@ -19,14 +19,12 @@ package options
@@ -91,7 +89,6 @@ index 2a7ddf4d8e0..9beb880c62a 100644
  	if err != nil {
  		return err
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_test.go
-index c21240ff8f9..d97955bbfa4 100644
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_test.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_test.go
 @@ -37,7 +37,7 @@ func TestCreateClusterAwareContext(t *testing.T) {

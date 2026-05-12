@@ -10,7 +10,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  1 file changed, 13 insertions(+)
 
 diff --git a/hack/pin-dependency.sh b/hack/pin-dependency.sh
-index 65440a9bb11..a14ded830b3 100755
 --- a/hack/pin-dependency.sh
 +++ b/hack/pin-dependency.sh
 @@ -69,6 +69,12 @@ if [[ -z "${dep}" || -z "${replacement}" || -z "${sha}" ]]; then

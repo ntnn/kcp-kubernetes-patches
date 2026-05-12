@@ -10,7 +10,6 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  1 file changed, 10 deletions(-)
 
 diff --git a/pkg/registry/rbac/validation/kcp.go b/pkg/registry/rbac/validation/kcp.go
-index 4766fb7b5f5..276be077ead 100644
 --- a/pkg/registry/rbac/validation/kcp.go
 +++ b/pkg/registry/rbac/validation/kcp.go
 @@ -170,16 +170,6 @@ func EffectiveUsers(clusterName logicalcluster.Name, u user.Info) []user.Info {

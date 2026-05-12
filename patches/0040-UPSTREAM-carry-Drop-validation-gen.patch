@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Mon, 4 Aug 2025 15:03:47 +0200
+Subject: [PATCH] UPSTREAM: <carry>: Drop validation-gen
+
+In https://github.com/kubernetes/kubernetes/pull/130349 for KEP-5073
+validation-gen was added to `gen_helpers`.
+
+KCP is currently not using validation-gen, but it is causing errors as
+validation-gen directly imports k8s.io/apimachinery, which is rewritten
+in the go.mod to `../apimachinery`.
+
+This is working fine locally and in go workspaces, but breaks as soon as
+`k8s.io/code-generator` is used from the kcp-dev/kubernetes fork, as
+then the rewrite still exists but points to nothing.
+
+Upstream the rewrites are resolved to the respective commit in the
+module when publishing the changes to their repositories.
+
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ staging/src/k8s.io/code-generator/kube_codegen.sh | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/staging/src/k8s.io/code-generator/kube_codegen.sh b/staging/src/k8s.io/code-generator/kube_codegen.sh
+--- a/staging/src/k8s.io/code-generator/kube_codegen.sh
++++ b/staging/src/k8s.io/code-generator/kube_codegen.sh
+@@ -143,7 +143,6 @@ function kube::codegen::gen_helpers() {
+             conversion-gen"${CODEGEN_VERSION_SPEC}"
+             deepcopy-gen"${CODEGEN_VERSION_SPEC}"
+             defaulter-gen"${CODEGEN_VERSION_SPEC}"
+-            validation-gen"${CODEGEN_VERSION_SPEC}"
+         )
+         # shellcheck disable=2046 # printf word-splitting is intentional
+         GO111MODULE=on go install $(printf "k8s.io/code-generator/cmd/%s " "${BINS[@]}")

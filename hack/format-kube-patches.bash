@@ -19,13 +19,16 @@ format_patches() {
             --zero-commit \
             --signature='' \
             --text \
-            ${ref}..@ \
-            --output-directory=../patches
+            --output-directory=../patches \
+            ${base_ref}..@
 
         # strips the blob information from the patch files
         # format-patch has no flag to drop this, they just clutter the
         # diff and they are not required for applying
         _sed -e '/^index/d' ../patches/*.patch
+
+        # remove the drop commits
+        find ../patches -iname '*drop*' -delete
     )
 }
 

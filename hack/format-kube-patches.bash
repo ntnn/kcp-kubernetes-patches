@@ -27,8 +27,8 @@ format_patches() {
         # diff and they are not required for applying
         _sed -e '/^index/d' ../patches/*.patch
 
-        # remove the drop commits
-        find ../patches -iname '*drop*' -delete
+        # remove the "carry: drop: ..." commits
+        find ../patches -iname 'carry*drop*' -delete
     )
 }
 

@@ -216,9 +216,6 @@ sure that this has the `GOWORK` set so the kube fork uses the updated
 local copies:
 
 ```bash
-
-GOWORK= ./hack/pin-dependency.sh github.com/kcp-dev/logicalcluster/v3 v3.0.5
-
 ../hack/pin-local-replace.bash
 
 git add . && git commit -m 'CARRY: <drop>: Add kcp dependencies'
@@ -268,6 +265,71 @@ make test-e2e
 
 make test-e2e-sharded-minimal
 ```
+
+## PRs
+
+### apimachinery, code-generator and client-go
+
+PR changes in apimachinery, code-generator and client-go against the `rebase-staging` branch in kcp-dev/kcp
+
+Once reviewed a maintainer manually pushes the changes to the branch.
+
+The publishing bot will then publish this branch to the staging repositories.
+
+### Update kubernetes fork
+
+Now drop the previous drop commits with the local replaces and update
+the kcp deps:
+
+```bash
+cd kubernetes/
+GOWORK= ./hack/pin-dependency.sh github.com/kcp-dev/logicalcluster/v3 v3.0.5
+GOWORK= ./hack/pin-dependency.sh github.com/kcp-dev/apimachinery/v2 rebase-staging
+GOWORK= ./hack/pin-dependency.sh github.com/kcp-dev/client-go rebase-staging
+git add . && git commit -m 'CARRY: <drop>: Add kcp dependencies'
+```
+
+Update the vendor directories:
+
+```bash
+GOWORK= ./hack/update-vendor.sh
+git add . && git commit -m 'CARRY: <drop>: vendor'
+```
+
+And run the code generator:
+
+```bash
+GOWORK= ./hack/update-codegen.sh
+git add . && git commit -m 'CARRY: <drop>: codegen'
+```
+
+During the vendoring go likes to replace the `v0` tags of the kubernetes
+deps - that however breaks when kcp then tries to import the kube fork.
+To prevent this replace all the changed versions:
+
+```bash
+../hack/kube-repin-staging.bash
+git add . && git commit -m 'CARRY: <drop>: fix v0 tags'
+```
+
+This can't happen beforehand though as resetting the tags then breaks
+code generation.
+
+
+And then push this to your fork and create a PR in kcp-dev/kubernetes.
+
+### kcp-dev/kcp
+
+While the kcp-dev/kubernetes PR is up go ahead and update the kcp branch
+to use the updated kubernetes fork:
+
+```bash
+cd kcp/
+GITHUB_USER=<user> GITHUB_REPO=kubernetes BRANCH=<your branch> ./hack/bump-k8s.sh
+```
+
+If that fails upstream probably added a new staging repository. Compare
+the replacements in the go.mod with the directories in the staging dir.
 
 ## Re-exporting patches after conflict resolution
 

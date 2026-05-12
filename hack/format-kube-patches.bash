@@ -3,13 +3,7 @@
 log() { echo ">>> $@"; }
 die() { log "$@"; exit 1; }
 cd "$(dirname $0)/.."
-
-_sed() {
-    case "$OSTYPE" in
-        (darwin*) sed -i '' "$@";;
-        (*) sed -i "$@";;
-    esac
-}
+source ./hack/lib.bash
 
 format_patches() {
     local base_ref="$1"

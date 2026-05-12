@@ -34,6 +34,12 @@ set_replace_all() {
     done
 }
 
+# logicalclusters doesn't need a local replace
+(
+    cd kubernetes
+    ./hack/pin-dependency.sh github.com/kcp-dev/logicalcluster/v3 latest
+)
+
 set_replace_all \
     github.com/kcp-dev/apimachinery/v2 \
     $PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery
@@ -43,7 +49,6 @@ set_replace_all \
     $PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/client-go
 
 # required because client-go references code-generator
-
 set_replace_all \
     github.com/kcp-dev/code-generator/v3 \
     $PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/code-generator

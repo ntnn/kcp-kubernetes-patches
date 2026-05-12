@@ -5,10 +5,10 @@ Subject: [PATCH] UPSTREAM: <carry>: add client and informer hacks
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
- .../apiserver/pkg/clientsethack/adapter.go    | 333 ++++++++++++++++++
+ .../apiserver/pkg/clientsethack/adapter.go    | 323 ++++++++++++++++++
  .../apiserver/pkg/dynamichack/adapter.go      |  59 ++++
  .../pkg/informerfactoryhack/adapter.go        | 204 +++++++++++
- 3 files changed, 596 insertions(+)
+ 3 files changed, 586 insertions(+)
  create mode 100644 staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go
  create mode 100644 staging/src/k8s.io/apiserver/pkg/dynamichack/adapter.go
  create mode 100644 staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go
@@ -17,7 +17,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go b/staging
 new file mode 100644
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go
-@@ -0,0 +1,333 @@
+@@ -0,0 +1,323 @@
 +/*
 +Copyright 2022 The KCP Authors.
 +
@@ -57,8 +57,6 @@ new file mode 100644
 +	authorizationv1beta1 "k8s.io/client-go/kubernetes/typed/authorization/v1beta1"
 +	autoscalingv1 "k8s.io/client-go/kubernetes/typed/autoscaling/v1"
 +	autoscalingv2 "k8s.io/client-go/kubernetes/typed/autoscaling/v2"
-+	autoscalingv2beta1 "k8s.io/client-go/kubernetes/typed/autoscaling/v2beta1"
-+	autoscalingv2beta2 "k8s.io/client-go/kubernetes/typed/autoscaling/v2beta2"
 +	batchv1 "k8s.io/client-go/kubernetes/typed/batch/v1"
 +	batchv1beta1 "k8s.io/client-go/kubernetes/typed/batch/v1beta1"
 +	certificatesv1 "k8s.io/client-go/kubernetes/typed/certificates/v1"
@@ -92,12 +90,12 @@ new file mode 100644
 +	resourcev1beta1 "k8s.io/client-go/kubernetes/typed/resource/v1beta1"
 +	resourcev1beta2 "k8s.io/client-go/kubernetes/typed/resource/v1beta2"
 +	schedulingv1 "k8s.io/client-go/kubernetes/typed/scheduling/v1"
-+	schedulingv1alpha1 "k8s.io/client-go/kubernetes/typed/scheduling/v1alpha1"
++	schedulingv1alpha2 "k8s.io/client-go/kubernetes/typed/scheduling/v1alpha2"
 +	schedulingv1beta1 "k8s.io/client-go/kubernetes/typed/scheduling/v1beta1"
 +	storagev1 "k8s.io/client-go/kubernetes/typed/storage/v1"
 +	storagev1alpha1 "k8s.io/client-go/kubernetes/typed/storage/v1alpha1"
 +	storagev1beta1 "k8s.io/client-go/kubernetes/typed/storage/v1beta1"
-+	storagemigrationv1alpha1 "k8s.io/client-go/kubernetes/typed/storagemigration/v1alpha1"
++	storagemigrationv1beta1 "k8s.io/client-go/kubernetes/typed/storagemigration/v1beta1"
 +)
 +
 +// Interface allows us to hold onto a strongly-typed cluster-aware clients here, while
@@ -193,14 +191,6 @@ new file mode 100644
 +}
 +
 +func (h *hack) AutoscalingV2() autoscalingv2.AutoscalingV2Interface {
-+	panic("programmer error: using a cluster-unaware clientset, need to cast this to use the cluster-aware one!")
-+}
-+
-+func (h *hack) AutoscalingV2beta1() autoscalingv2beta1.AutoscalingV2beta1Interface {
-+	panic("programmer error: using a cluster-unaware clientset, need to cast this to use the cluster-aware one!")
-+}
-+
-+func (h *hack) AutoscalingV2beta2() autoscalingv2beta2.AutoscalingV2beta2Interface {
 +	panic("programmer error: using a cluster-unaware clientset, need to cast this to use the cluster-aware one!")
 +}
 +
@@ -316,7 +306,7 @@ new file mode 100644
 +	panic("programmer error: using a cluster-unaware clientset, need to cast this to use the cluster-aware one!")
 +}
 +
-+func (h *hack) SchedulingV1alpha1() schedulingv1alpha1.SchedulingV1alpha1Interface {
++func (h *hack) SchedulingV1alpha2() schedulingv1alpha2.SchedulingV1alpha2Interface {
 +	panic("programmer error: using a cluster-unaware clientset, need to cast this to use the cluster-aware one!")
 +}
 +
@@ -340,7 +330,7 @@ new file mode 100644
 +	panic("programmer error: using a cluster-unaware clientset, need to cast this to use the cluster-aware one!")
 +}
 +
-+func (h *hack) StoragemigrationV1alpha1() storagemigrationv1alpha1.StoragemigrationV1alpha1Interface {
++func (h *hack) StoragemigrationV1beta1() storagemigrationv1beta1.StoragemigrationV1beta1Interface {
 +	panic("programmer error: using a cluster-unaware clientset, need to cast this to use the cluster-aware one!")
 +}
 +

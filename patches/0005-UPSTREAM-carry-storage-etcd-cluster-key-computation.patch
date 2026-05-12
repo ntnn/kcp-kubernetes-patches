@@ -4,6 +4,8 @@ Date: Wed, 27 Sep 2023 14:43:38 +0200
 Subject: [PATCH] UPSTREAM: <carry>: storage: etcd cluster key computation
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 ---
  .../pkg/registry/generic/registry/store.go    | 39 +++++++++++++++----
  .../pkg/registry/rest/resttest/resttest.go    | 19 +++++++--
@@ -137,7 +139,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/registry/rest/resttest/resttest.go
  		ctx = genericapirequest.WithRequestInfo(ctx, t.requestInfo)
  	}
 -	return ctx
-+	return genericapirequest.WithCluster(genericapirequest.WithNamespace(genericapirequest.NewContext(), t.TestNamespace()), genericapirequest.Cluster{Name: t.TestCluster()})
++	return genericapirequest.WithCluster(genericapirequest.WithNamespace(ctx, t.TestNamespace()), genericapirequest.Cluster{Name: t.TestCluster()})
  }
  
  func (t *Tester) getObjectMetaOrFail(obj runtime.Object) metav1.Object {

@@ -1,7 +1,7 @@
-From 5a5d5ab5569a8d990a350ee766fdbee3900bd1d1 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Mangirdas Judeikis <mangirdas@judeikis.lt>
 Date: Mon, 8 Dec 2025 15:09:56 +0200
-Subject: [PATCH 56/73] UPSTREAM: <carry>: Clusterize cacher delegator
+Subject: [PATCH] UPSTREAM: <carry>: Clusterize cacher delegator
 
 Signed-off-by: Mangirdas Judeikis <mangirdas@judeikis.lt>
 ---
@@ -19,7 +19,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go b/stag
  	"k8s.io/apiserver/pkg/features"
  	"k8s.io/apiserver/pkg/storage"
  	"k8s.io/apiserver/pkg/storage/cacher/delegator"
-@@ -332,6 +333,7 @@ func (c consistencyChecker) startChecking(stopCh <-chan struct{}) {
+@@ -329,6 +330,7 @@ func (c consistencyChecker) startChecking(stopCh <-chan struct{}) {
  }
  
  func (c *consistencyChecker) check(ctx context.Context) {
@@ -27,6 +27,3 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go b/stag
  	digests, err := c.calculateDigests(ctx)
  	if err != nil {
  		klog.ErrorS(err, "Cache consistency check error", "group", c.groupResource.Group, "resource", c.groupResource.Resource)
--- 
-2.54.0
-

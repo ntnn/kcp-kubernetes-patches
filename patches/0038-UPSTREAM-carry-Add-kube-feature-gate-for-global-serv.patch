@@ -1,8 +1,8 @@
-From a114d4bd5e34af5f2c473fa121cd607c51cf7ab0 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Karol Szwaj <karol.szwaj@gmail.com>
 Date: Thu, 13 Mar 2025 11:08:06 +0100
-Subject: [PATCH 38/73] UPSTREAM: <carry>: Add kube feature gate for global
- service account
+Subject: [PATCH] UPSTREAM: <carry>: Add kube feature gate for global service
+ account
 
 TODO: this commit may be dropped once https://github.com/kcp-dev/kcp/pull/3274 and related issues are done
 
@@ -18,9 +18,9 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -2155,6 +2155,9 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
- 	zpagesfeatures.ComponentStatusz: {
+@@ -2375,6 +2375,9 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
  		{Version: version.MustParse("1.32"), Default: false, PreRelease: featuregate.Alpha},
+ 		{Version: version.MustParse("1.36"), Default: true, PreRelease: featuregate.Beta},
  	},
 +	GlobalServiceAccount: {
 +		{Version: version.MustParse("1.31"), Default: false, PreRelease: featuregate.Alpha},
@@ -57,6 +57,3 @@ diff --git a/pkg/registry/rbac/validation/kcp.go b/pkg/registry/rbac/validation/
  			if clusters := u.GetExtra()[authserviceaccount.ClusterNameKey]; len(clusters) == 1 {
  				nsNameSuffix := strings.TrimPrefix(u.GetName(), "system:serviceaccount:")
  				rewritten := &user.DefaultInfo{
--- 
-2.54.0
-

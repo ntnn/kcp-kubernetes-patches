@@ -1,14 +1,14 @@
-From 0e315cb39009dec61a32a682cfe24e161b4593de Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 11:28:41 +0200
-Subject: [PATCH 53/73] UPSTREAM: <carry>: add client and informer hacks
+Subject: [PATCH] UPSTREAM: <carry>: add client and informer hacks
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
  .../apiserver/pkg/clientsethack/adapter.go    | 333 ++++++++++++++++++
  .../apiserver/pkg/dynamichack/adapter.go      |  59 ++++
- .../pkg/informerfactoryhack/adapter.go        | 191 ++++++++++
- 3 files changed, 583 insertions(+)
+ .../pkg/informerfactoryhack/adapter.go        | 204 +++++++++++
+ 3 files changed, 596 insertions(+)
  create mode 100644 staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go
  create mode 100644 staging/src/k8s.io/apiserver/pkg/dynamichack/adapter.go
  create mode 100644 staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go
@@ -419,7 +419,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go b/s
 new file mode 100644
 --- /dev/null
 +++ b/staging/src/k8s.io/apiserver/pkg/informerfactoryhack/adapter.go
-@@ -0,0 +1,191 @@
+@@ -0,0 +1,204 @@
 +/*
 +Copyright 2022 The KCP Authors.
 +
@@ -441,6 +441,7 @@ new file mode 100644
 +package informerfactoryhack
 +
 +import (
++	"context"
 +	"reflect"
 +
 +	kcpkubernetesinformers "github.com/kcp-dev/client-go/informers"
@@ -508,6 +509,14 @@ new file mode 100644
 +	panic("programmer error: using a cluster-unaware informer factory, need to cast this to use the cluster-aware one!")
 +}
 +
++func (s *hack) StartWithContext(_ context.Context) {
++	panic("programmer error: using a cluster-unaware informer factory, need to cast this to use the cluster-aware one!")
++}
++
++func (s *hack) InformerName() *cache.InformerName {
++	panic("programmer error: using a cluster-unaware informer factory, need to cast this to use the cluster-aware one!")
++}
++
 +func (s *hack) InformerFor(obj runtime.Object, newFunc internalinterfaces.NewInformerFunc) cache.SharedIndexInformer {
 +	panic("programmer error: using a cluster-unaware informer factory, need to cast this to use the cluster-aware one!")
 +}
@@ -529,6 +538,10 @@ new file mode 100644
 +}
 +
 +func (s *hack) WaitForCacheSync(stopCh <-chan struct{}) map[reflect.Type]bool {
++	panic("programmer error: using a cluster-unaware informer factory, need to cast this to use the cluster-aware one!")
++}
++
++func (s *hack) WaitForCacheSyncWithContext(_ context.Context) cache.SyncResult {
 +	panic("programmer error: using a cluster-unaware informer factory, need to cast this to use the cluster-aware one!")
 +}
 +
@@ -611,6 +624,3 @@ new file mode 100644
 +func (s *hack) ClusterAware() kcpkubernetesinformers.SharedInformerFactory {
 +	return s.clusterAware
 +}
--- 
-2.54.0
-

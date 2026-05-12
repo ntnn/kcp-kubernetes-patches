@@ -1,7 +1,7 @@
-From cd1e84f35702051241d3bca1d6071c9d3c492930 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Sun, 12 Apr 2026 00:04:57 +0200
-Subject: [PATCH 65/73] FIXUP: <carry>: gc & quata patches applied
+Subject: [PATCH] FIXUP: <carry>: gc & quata patches applied
 
 Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
 Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
@@ -122,6 +122,3 @@ deleted file mode 100644
 -		return nil
 -	}()
 -}
--- 
-2.54.0
-

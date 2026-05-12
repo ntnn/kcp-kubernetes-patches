@@ -1,7 +1,7 @@
-From da4b84a77d8def993aafd6716efd637e78062a24 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Thu, 28 Aug 2025 07:44:54 +0200
-Subject: [PATCH 43/73] UPSTREAM: <carry>: Rename
+Subject: [PATCH] UPSTREAM: <carry>: Rename
  authentication.{kubernetes=>kcp}.io/cluster-name
 
 Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
@@ -165,6 +165,3 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util
  )
  
  // MakeUsername generates a username from the given namespace and ServiceAccount name.
--- 
-2.54.0
-

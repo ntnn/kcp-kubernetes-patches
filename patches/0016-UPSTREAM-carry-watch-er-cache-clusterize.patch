@@ -1,7 +1,7 @@
-From fc314b6d3da847485c3a98277b7041b8ca738751 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 14:38:50 +0200
-Subject: [PATCH 16/73] UPSTREAM: <carry>: watch(er/cache): clusterize
+Subject: [PATCH] UPSTREAM: <carry>: watch(er/cache): clusterize
 
 Co-authored-by: Marvin Beckers <marvin@kubermatic.com>
 Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
@@ -13,18 +13,18 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  .../pkg/registry/generic/registry/store.go    |   9 +-
  .../registry/generic/registry/store_test.go   |  21 ++--
  .../pkg/registry/generic/storage_decorator.go |   6 +-
- .../pkg/registry/generic/testing/tester.go    |   4 +-
+ .../pkg/registry/generic/testing/tester.go    |   3 +-
  .../apiserver/pkg/storage/cacher/cacher.go    |  72 +++++++++++-
  .../pkg/storage/cacher/cacher_kcp.go          |  27 +++++
  .../pkg/storage/cacher/lister_watcher.go      |  16 ++-
- .../pkg/storage/cacher/watch_cache.go         |  11 +-
+ .../pkg/storage/cacher/watch_cache.go         |  10 +-
  .../pkg/storage/cacher/watch_cache_kcp.go     |  38 +++++++
  .../storage/cacher/watch_cache_kcp_test.go    | 107 ++++++++++++++++++
  .../pkg/storage/cacher/watch_cache_test.go    |   2 +-
  .../apiserver/pkg/storage/etcd3/watcher.go    |  27 ++++-
  .../pkg/storage/storagebackend/config.go      |   5 +
  .../pkg/storage/storagebackend/config_kcp.go  |  12 ++
- 15 files changed, 339 insertions(+), 45 deletions(-)
+ 15 files changed, 337 insertions(+), 45 deletions(-)
  create mode 100644 staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_kcp.go
  create mode 100644 staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp.go
  create mode 100644 staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_test.go
@@ -85,7 +85,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/storage_
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 --- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
-@@ -1610,17 +1610,17 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
+@@ -1630,17 +1630,17 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
  
  	// We adapt the store's keyFunc so that we can use it with the StorageDecorator
  	// without making any assumptions about where objects are stored in etcd
@@ -106,7 +106,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
  	}
  
  	if e.DeleteCollectionWorkers == 0 {
-@@ -1684,8 +1684,7 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
+@@ -1704,8 +1704,7 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
  
  // startObservingCount starts monitoring given prefix and periodically updating metrics. It returns a function to stop collection.
  func (e *Store) startObservingCount(period time.Duration, objectCountTracker flowcontrolrequest.StorageObjectCountTracker) func() {
@@ -181,15 +181,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/storage_decorator
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/testing/tester.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/testing/tester.go
 --- a/staging/src/k8s.io/apiserver/pkg/registry/generic/testing/tester.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/testing/tester.go
-@@ -28,6 +28,7 @@ import (
- 	"k8s.io/apimachinery/pkg/labels"
- 	"k8s.io/apimachinery/pkg/runtime"
- 	"k8s.io/apiserver/pkg/authentication/user"
-+	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
- 	genericregistry "k8s.io/apiserver/pkg/registry/generic/registry"
- 	"k8s.io/apiserver/pkg/registry/rest"
- 	"k8s.io/apiserver/pkg/registry/rest/resttest"
-@@ -148,11 +149,11 @@ func (t *Tester) TestWatch(valid runtime.Object, labelsPass, labelsFail []labels
+@@ -154,11 +154,11 @@ func (t *Tester) TestWatch(valid runtime.Object, labelsPass, labelsFail []labels
  // Helper functions
  
  func (t *Tester) getObject(ctx context.Context, obj runtime.Object) (runtime.Object, error) {
@@ -202,7 +194,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/testing/tester.go
  	result, err := t.storage.Get(ctx, accessor.GetName(), &metav1.GetOptions{})
  	if err != nil {
  		return nil, err
-@@ -161,6 +162,7 @@ func (t *Tester) getObject(ctx context.Context, obj runtime.Object) (runtime.Obj
+@@ -167,6 +167,7 @@ func (t *Tester) getObject(ctx context.Context, obj runtime.Object) (runtime.Obj
  }
  
  func (t *Tester) createObject(ctx context.Context, obj runtime.Object) error {
@@ -221,7 +213,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging
  	"strings"
  	"sync"
  	"time"
-@@ -40,12 +41,15 @@ import (
+@@ -41,13 +42,16 @@ import (
  	"k8s.io/apimachinery/pkg/watch"
  	"k8s.io/apiserver/pkg/audit"
  	"k8s.io/apiserver/pkg/endpoints/request"
@@ -232,12 +224,13 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging
  	"k8s.io/apiserver/pkg/storage/cacher/delegator"
  	"k8s.io/apiserver/pkg/storage/cacher/metrics"
  	"k8s.io/apiserver/pkg/storage/cacher/progress"
+ 	"k8s.io/apiserver/pkg/storage/cacher/store"
  	etcdfeature "k8s.io/apiserver/pkg/storage/feature"
 +	"k8s.io/apiserver/pkg/storage/storagebackend"
  	utilfeature "k8s.io/apiserver/pkg/util/feature"
  	"k8s.io/client-go/tools/cache"
  	"k8s.io/component-base/tracing"
-@@ -96,7 +100,7 @@ type Config struct {
+@@ -98,7 +102,7 @@ type Config struct {
  	ResourcePrefix string
  
  	// KeyFunc is used to get a key in the underlying storage for a given object.
@@ -246,7 +239,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging
  
  	// GetAttrsFunc is used to get object labels, fields
  	GetAttrsFunc func(runtime.Object) (label labels.Set, field fields.Set, err error)
-@@ -119,6 +123,9 @@ type Config struct {
+@@ -121,6 +125,9 @@ type Config struct {
  	Codec runtime.Codec
  
  	Clock clock.WithTicker
@@ -256,7 +249,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging
  }
  
  type watchersMap map[int]*cacheWatcher
-@@ -432,11 +439,17 @@ func NewCacherFromConfig(config Config) (*Cacher, error) {
+@@ -434,11 +441,17 @@ func NewCacherFromConfig(config Config) (*Cacher, error) {
  		return nil, fmt.Errorf("config.EventsHistoryWindow (%v) must not be below %v", eventFreshDuration, DefaultEventFreshDuration)
  	}
  
@@ -275,7 +268,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging
  	reflectorName := "storage/cacher.go:" + resourcePrefix
  
  	reflector := cache.NewNamedReflector(reflectorName, listerWatcher, obj, watchCache, 0)
-@@ -581,7 +594,7 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
+@@ -587,7 +600,7 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
  	}
  
  	// Determine a function that computes the bookmarkAfterResourceVersion
@@ -284,7 +277,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging
  	if err != nil {
  		return newErrWatcher(err), nil
  	}
-@@ -1218,11 +1231,55 @@ func (c *Cacher) LastSyncResourceVersion() (uint64, error) {
+@@ -1256,11 +1269,55 @@ func (c *Cacher) LastSyncResourceVersion() (uint64, error) {
  	return c.versioner.ParseResourceVersion(resourceVersion)
  }
  
@@ -341,7 +334,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging
  	if !isListWatchRequest(opts) {
  		return func() uint64 { return 0 }, nil
  	}
-@@ -1327,6 +1384,13 @@ func (c *Cacher) Ready() bool {
+@@ -1366,6 +1423,13 @@ func (c *Cacher) Ready() bool {
  	return err == nil
  }
  
@@ -447,7 +440,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go b
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
-@@ -102,7 +102,7 @@ type watchCache struct {
+@@ -103,7 +103,7 @@ type watchCache struct {
  	lowerBoundCapacity int
  
  	// keyFunc is used to get a key in the underlying storage for a given object.
@@ -456,7 +449,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go b/st
  
  	// getAttrsFunc is used to get labels and fields of an object.
  	getAttrsFunc func(runtime.Object) (labels.Set, fields.Set, error)
-@@ -163,7 +163,7 @@ type watchCache struct {
+@@ -164,7 +164,7 @@ type watchCache struct {
  }
  
  func newWatchCache(
@@ -465,8 +458,8 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go b/st
  	eventHandler func(*watchCacheEvent),
  	getAttrsFunc func(runtime.Object) (labels.Set, fields.Set, error),
  	versioner storage.Versioner,
-@@ -282,10 +282,11 @@ func (w *watchCache) objectToVersionedRuntimeObject(obj interface{}) (runtime.Ob
- func (w *watchCache) processEvent(event watch.Event, resourceVersion uint64, updateFunc func(*storeElement) error) error {
+@@ -283,7 +283,7 @@ func (w *watchCache) objectToVersionedRuntimeObject(obj interface{}) (runtime.Ob
+ func (w *watchCache) processEvent(event watch.Event, resourceVersion uint64, updateFunc func(*store.Element) error) error {
  	metrics.EventsReceivedCounter.WithLabelValues(w.groupResource.Group, w.groupResource.Resource).Inc()
  
 -	key, err := w.keyFunc(event.Object)
@@ -474,11 +467,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go b/st
  	if err != nil {
  		return fmt.Errorf("couldn't compute key: %v", err)
  	}
-+
- 	elem := &storeElement{Key: key, Object: event.Object}
- 	elem.Labels, elem.Fields, err = w.getAttrsFunc(event.Object)
- 	if err != nil {
-@@ -718,7 +719,7 @@ func (w *watchCache) Get(obj interface{}) (interface{}, bool, error) {
+@@ -719,7 +719,7 @@ func (w *watchCache) Get(obj interface{}) (interface{}, bool, error) {
  	if !ok {
  		return nil, false, fmt.Errorf("obj does not implement runtime.Object interface: %v", obj)
  	}
@@ -487,7 +476,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go b/st
  	if err != nil {
  		return nil, false, fmt.Errorf("couldn't compute key: %v", err)
  	}
-@@ -744,7 +745,7 @@ func (w *watchCache) Replace(objs []interface{}, resourceVersion string) error {
+@@ -745,7 +745,7 @@ func (w *watchCache) Replace(objs []interface{}, resourceVersion string) error {
  		if !ok {
  			return fmt.Errorf("didn't get runtime.Object for replace: %#v", obj)
  		}
@@ -654,7 +643,7 @@ new file mode 100644
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
-@@ -115,7 +115,7 @@ func (w *testWatchCache) getCacheIntervalForEvents(resourceVersion uint64, opts
+@@ -116,7 +116,7 @@ func (w *testWatchCache) getCacheIntervalForEvents(resourceVersion uint64, opts
  
  // newTestWatchCache just adds a fake clock.
  func newTestWatchCache(capacity int, eventFreshDuration time.Duration, indexers *cache.Indexers) *testWatchCache {
@@ -666,7 +655,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
-@@ -35,7 +35,9 @@ import (
+@@ -36,7 +36,9 @@ import (
  	"k8s.io/apimachinery/pkg/runtime/schema"
  	"k8s.io/apimachinery/pkg/util/wait"
  	"k8s.io/apimachinery/pkg/watch"
@@ -676,7 +665,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  	"k8s.io/apiserver/pkg/storage"
  	"k8s.io/apiserver/pkg/storage/etcd3/metrics"
  	"k8s.io/apiserver/pkg/storage/value"
-@@ -93,6 +95,9 @@ type watchChan struct {
+@@ -94,6 +96,9 @@ type watchChan struct {
  	incomingEventChan        chan *event
  	resultChan               chan watch.Event
  	getResourceSizeEstimator func() *resourceSizeEstimator
@@ -686,7 +675,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  }
  
  // Watch watches on a key and returns a watch.Interface that transfers relevant notifications.
-@@ -102,7 +107,12 @@ type watchChan struct {
+@@ -103,7 +108,12 @@ type watchChan struct {
  // If opts.Recursive is false, it watches on given key.
  // If opts.Recursive is true, it watches any children and directories under the key, excluding the root key itself.
  // pred must be non-nil. Only if opts.Predicate matches the change, it will be returned.
@@ -700,7 +689,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  	if opts.Recursive && !strings.HasSuffix(key, "/") {
  		return nil, fmt.Errorf(`recursive key needs to end with "/"`)
  	}
-@@ -113,7 +123,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
+@@ -114,7 +124,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
  	if err != nil {
  		return nil, err
  	}
@@ -709,7 +698,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  	go wc.run(isInitialEventsEndBookmarkRequired(opts), areInitialEventsRequired(rev, opts))
  
  	// For etcd watch we don't have an easy way to answer whether the watch
-@@ -126,7 +136,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
+@@ -127,7 +137,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
  	return wc, nil
  }
  
@@ -718,7 +707,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  	wc := &watchChan{
  		watcher:                  w,
  		key:                      key,
-@@ -137,6 +147,9 @@ func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, re
+@@ -138,6 +148,9 @@ func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, re
  		incomingEventChan:        make(chan *event, incomingBufSize),
  		resultChan:               make(chan watch.Event, outgoingBufSize),
  		getResourceSizeEstimator: w.getResourceSizeEstimator,
@@ -728,7 +717,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  	}
  	if pred.Empty() {
  		// The filter doesn't filter out any object.
-@@ -712,6 +725,10 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+@@ -713,6 +726,10 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
  		if err != nil {
  			return nil, nil, err
  		}
@@ -739,7 +728,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  	}
  	// We need to decode prevValue, only if this is deletion event or
  	// the underlying filter doesn't accept all objects (otherwise we
-@@ -729,6 +746,10 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+@@ -730,6 +747,10 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
  		if err != nil {
  			return nil, nil, wc.watcher.transformIfCorruptObjectError(e, err)
  		}
@@ -782,6 +771,3 @@ new file mode 100644
 +	// Cluster holds a KCP cluster
 +	Cluster genericrequest.Cluster
 +}
--- 
-2.54.0
-

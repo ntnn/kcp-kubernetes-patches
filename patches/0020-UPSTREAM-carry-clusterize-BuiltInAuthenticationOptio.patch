@@ -1,8 +1,7 @@
-From df84c110546ecfdb605138695e0a356f14dafc58 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 15:34:14 +0200
-Subject: [PATCH 20/73] UPSTREAM: <carry>: clusterize
- BuiltInAuthenticationOptions
+Subject: [PATCH] UPSTREAM: <carry>: clusterize BuiltInAuthenticationOptions
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
@@ -21,8 +20,8 @@ diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/opt
  	"github.com/spf13/pflag"
  
  	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-@@ -49,7 +51,6 @@ import (
- 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+@@ -50,7 +52,6 @@ import (
+ 	"k8s.io/apiserver/pkg/util/filesystem"
  	"k8s.io/apiserver/plugin/pkg/authenticator/token/oidc"
  	"k8s.io/client-go/informers"
 -	"k8s.io/client-go/kubernetes"
@@ -58,6 +57,3 @@ diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/opt
  		)
  	}
  
--- 
-2.54.0
-

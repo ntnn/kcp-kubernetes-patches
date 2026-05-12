@@ -1,7 +1,7 @@
-From 043d2bc0df193a4d3740dbed999e0f7651f79a67 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Fri, 23 Aug 2024 08:23:28 +0200
-Subject: [PATCH 36/73] UPSTREAM: <carry>: authz: add warrants to default rule
+Subject: [PATCH] UPSTREAM: <carry>: authz: add warrants to default rule
  resolver
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
@@ -665,6 +665,3 @@ diff --git a/pkg/registry/rbac/validation/rule.go b/pkg/registry/rbac/validation
  			return i, true
  		}
  	}
--- 
-2.54.0
-

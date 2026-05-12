@@ -1,8 +1,7 @@
-From 417893aad973893b26757b9ecc32db08c56f9416 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Robert Vasek <rvasek01@gmail.com>
 Date: Fri, 13 Mar 2026 13:51:17 +0100
-Subject: [PATCH 64/73] UPSTREAM: <squash> fix calculating kcp storage
- annotations
+Subject: [PATCH] UPSTREAM: <squash> fix calculating kcp storage annotations
 
 Can be squashed with 'UPSTREAM: <carry>: storage/etcd3: clusterize'
 
@@ -443,7 +442,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp_test.go b/
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
-@@ -733,7 +733,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+@@ -734,7 +734,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
  
  		// kcp: apply clusterName to the decoded object, as the name is not persisted in storage.
  		clusterName := adjustClusterNameIfWildcard(wc.shard, wc.cluster, wc.crdRequest, wc.key, e.key)
@@ -452,7 +451,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  		annotateDecodedObjectWith(curObj, clusterName, shardName)
  	}
  	// We need to decode prevValue, only if this is deletion event or
-@@ -755,7 +755,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+@@ -756,7 +756,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
  
  		// kcp: apply clusterName to the decoded object, as the name is not persisted in storage.
  		clusterName := adjustClusterNameIfWildcard(wc.shard, wc.cluster, wc.crdRequest, wc.key, e.key)
@@ -461,6 +460,3 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  		annotateDecodedObjectWith(oldObj, clusterName, shardName)
  	}
  	return curObj, oldObj, nil
--- 
-2.54.0
-

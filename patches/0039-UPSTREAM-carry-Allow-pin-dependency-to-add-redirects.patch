@@ -1,8 +1,8 @@
-From 789a8c2021409593289b797a2bd35c5d2cffcaea Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Wed, 16 Jul 2025 13:21:36 +0200
-Subject: [PATCH 39/73] UPSTREAM: <carry>: Allow pin-dependency to add
- redirects to local paths
+Subject: [PATCH] UPSTREAM: <carry>: Allow pin-dependency to add redirects to
+ local paths
 
 Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 ---
@@ -47,6 +47,3 @@ diff --git a/hack/pin-dependency.sh b/hack/pin-dependency.sh
          done
      fi
    popd >/dev/null 2>&1
--- 
-2.54.0
-

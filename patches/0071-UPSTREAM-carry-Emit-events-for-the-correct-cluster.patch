@@ -1,7 +1,7 @@
-From 3522d5288d9550b86221d5eda370b93b446e2a6b Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Sun, 12 Apr 2026 15:52:10 +0200
-Subject: [PATCH 72/73] UPSTREAM: <carry>: Emit events for the correct cluster
+Subject: [PATCH] UPSTREAM: <carry>: Emit events for the correct cluster
 
 Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
 Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
@@ -89,7 +89,7 @@ diff --git a/pkg/controller/garbagecollector/garbagecollector.go b/pkg/controlle
 diff --git a/pkg/controller/garbagecollector/graph_builder.go b/pkg/controller/garbagecollector/graph_builder.go
 --- a/pkg/controller/garbagecollector/graph_builder.go
 +++ b/pkg/controller/garbagecollector/graph_builder.go
-@@ -43,6 +43,7 @@ import (
+@@ -44,6 +44,7 @@ import (
  	"k8s.io/kubernetes/pkg/controller/apis/config/scheme"
  	"k8s.io/kubernetes/pkg/controller/garbagecollector/metaonly"
  
@@ -97,7 +97,7 @@ diff --git a/pkg/controller/garbagecollector/graph_builder.go b/pkg/controller/g
  	"github.com/kcp-dev/logicalcluster/v3"
  )
  
-@@ -523,8 +524,12 @@ func (gb *GraphBuilder) reportInvalidNamespaceOwnerRef(n *node, invalidOwnerUID
+@@ -524,8 +525,12 @@ func (gb *GraphBuilder) reportInvalidNamespaceOwnerRef(n *node, invalidOwnerUID
  		Kind:       n.identity.Kind,
  		APIVersion: n.identity.APIVersion,
  		Namespace:  n.identity.Namespace,
@@ -180,6 +180,3 @@ diff --git a/pkg/controller/garbagecollector/kcp.go b/pkg/controller/garbagecoll
 +func (sink *clusterEventSinkImpl) Patch(event *v1.Event, data []byte) (*v1.Event, error) {
 +	return sink.getClient(event).PatchWithEventNamespace(event, data)
 +}
--- 
-2.54.0
-

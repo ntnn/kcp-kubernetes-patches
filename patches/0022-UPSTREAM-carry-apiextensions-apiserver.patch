@@ -1,7 +1,7 @@
-From f970de4915399f7886ef60ee28381da4659503b6 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 12:31:44 +0200
-Subject: [PATCH 22/73] UPSTREAM: <carry>: apiextensions-apiserver
+Subject: [PATCH] UPSTREAM: <carry>: apiextensions-apiserver
 
 Co-authored-by: Marvin Beckers <marvin@kubermatic.com>
 Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
@@ -1496,7 +1496,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.
  	finalizingController := finalizer.NewCRDFinalizer(
 @@ -245,13 +295,6 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
  		go apiApprovalController.RunWithContext(5, hookContext)
- 		go finalizingController.Run(5, hookContext.Done())
+ 		go finalizingController.RunWithContext(5, hookContext)
  
 -		discoverySyncedCh := make(chan struct{})
 -		go discoveryController.Run(hookContext.Done(), discoverySyncedCh)
@@ -3715,7 +3715,7 @@ new file mode 100644
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/schema/kubeopenapi.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/schema/kubeopenapi.go
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/schema/kubeopenapi.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/schema/kubeopenapi.go
-@@ -80,12 +80,22 @@ func (x *Extensions) toKubeOpenAPI(ret *spec.Schema) {
+@@ -87,12 +87,22 @@ func (x *Extensions) toKubeOpenAPI(ret *spec.Schema) {
  	}
  	if len(x.XListMapKeys) > 0 {
  		ret.VendorExtensible.AddExtension("x-kubernetes-list-map-keys", x.XListMapKeys)
@@ -4012,7 +4012,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/finalizer
  	allResources, err := crClient.List(ctx, nil)
  	if err != nil {
  		return apiextensionsv1.CustomResourceDefinitionCondition{
-@@ -310,7 +316,7 @@ func (c *CRDFinalizer) processNextWorkItem(ctx context.Context) bool {
+@@ -313,7 +319,7 @@ func (c *CRDFinalizer) processNextWorkItem(ctx context.Context) bool {
  }
  
  func (c *CRDFinalizer) enqueue(obj *apiextensionsv1.CustomResourceDefinition) {
@@ -4233,7 +4233,7 @@ new file mode 100644
 +		group = "core"
 +	}
 +
-+	return "k8s.io/api/" + group
++	return "io.k8s.api." + group
 +}
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/controller.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/controller.go
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/openapi/controller.go
@@ -5265,7 +5265,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresou
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/status_strategy.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/status_strategy.go
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/status_strategy.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/status_strategy.go
-@@ -81,6 +81,7 @@ func (a statusStrategy) PrepareForUpdate(ctx context.Context, obj, old runtime.O
+@@ -82,6 +82,7 @@ func (a statusStrategy) PrepareForUpdate(ctx context.Context, obj, old runtime.O
  
  	// set status
  	newCustomResourceObject.SetManagedFields(managedFields)
@@ -5413,7 +5413,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go b/sta
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 --- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
-@@ -1684,7 +1684,8 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
+@@ -1704,7 +1704,8 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
  
  // startObservingCount starts monitoring given prefix and periodically updating metrics. It returns a function to stop collection.
  func (e *Store) startObservingCount(period time.Duration, objectCountTracker flowcontrolrequest.StorageObjectCountTracker) func() {
@@ -5480,6 +5480,3 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/util/openapi/proto.go b/staging/sr
 +
 +	return models, nil
 +}
--- 
-2.54.0
-

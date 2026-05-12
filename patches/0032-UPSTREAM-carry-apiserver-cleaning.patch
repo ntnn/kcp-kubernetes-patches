@@ -1,7 +1,7 @@
-From 4aa350f8e7039a6d79367d4db4f21f8b11c80587 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Mangirdas Judeikis <mangirdas@judeikis.lt>
 Date: Tue, 3 Sep 2024 19:55:54 +0300
-Subject: [PATCH 32/73] UPSTREAM: <carry>: apiserver cleaning
+Subject: [PATCH] UPSTREAM: <carry>: apiserver cleaning
 
 ---
  pkg/kubeapiserver/options/authentication.go                 | 2 +-
@@ -69,6 +69,3 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/feature.go b/stagin
  	if o == nil {
  		return nil
  	}
--- 
-2.54.0
-

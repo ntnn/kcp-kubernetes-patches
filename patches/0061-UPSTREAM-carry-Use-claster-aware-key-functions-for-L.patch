@@ -1,7 +1,7 @@
-From 22e4efd129f19b39ac97b75746dce794b9cfc987 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Tue, 17 Mar 2026 17:22:55 +0100
-Subject: [PATCH 61/73] UPSTREAM: <carry>: Use claster-aware key functions for
+Subject: [PATCH] UPSTREAM: <carry>: Use claster-aware key functions for
  ListWatch reflector
 
 Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
@@ -114,7 +114,7 @@ new file mode 100644
 diff --git a/staging/src/k8s.io/client-go/tools/cache/reflector.go b/staging/src/k8s.io/client-go/tools/cache/reflector.go
 --- a/staging/src/k8s.io/client-go/tools/cache/reflector.go
 +++ b/staging/src/k8s.io/client-go/tools/cache/reflector.go
-@@ -208,7 +208,7 @@ func DefaultWatchErrorHandler(ctx context.Context, r *Reflector, err error) {
+@@ -231,7 +231,7 @@ func DefaultWatchErrorHandler(ctx context.Context, r *Reflector, err error) {
  // NewNamespaceKeyedIndexerAndReflector creates an Indexer and a Reflector
  // The indexer is configured to key on namespace
  func NewNamespaceKeyedIndexerAndReflector(lw ListerWatcher, expectedType interface{}, resyncPeriod time.Duration) (indexer Indexer, reflector *Reflector) {
@@ -123,7 +123,7 @@ diff --git a/staging/src/k8s.io/client-go/tools/cache/reflector.go b/staging/src
  	reflector = NewReflector(lw, expectedType, indexer, resyncPeriod)
  	return indexer, reflector
  }
-@@ -754,7 +754,10 @@ func (r *Reflector) watchList(ctx context.Context) (watch.Interface, error) {
+@@ -846,7 +846,10 @@ func (r *Reflector) watchList(ctx context.Context) (watch.Interface, error) {
  
  		resourceVersion = ""
  		lastKnownRV := r.rewatchResourceVersion()
@@ -135,6 +135,3 @@ diff --git a/staging/src/k8s.io/client-go/tools/cache/reflector.go b/staging/src
  		// TODO(#115478): large "list", slow clients, slow network, p&f
  		//  might slow down streaming and eventually fail.
  		//  maybe in such a case we should retry with an increased timeout?
--- 
-2.54.0
-

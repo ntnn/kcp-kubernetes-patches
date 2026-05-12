@@ -1,8 +1,8 @@
-From 3309cc1593c869360e5b665e401e4080c285ba3f Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 15:54:31 +0200
-Subject: [PATCH 17/73] UPSTREAM: <carry>: apiserver: split chain into pre and
- post authz
+Subject: [PATCH] UPSTREAM: <carry>: apiserver: split chain into pre and post
+ authz
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
@@ -12,7 +12,7 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/config.go b/staging/src/k8s.io/apiserver/pkg/server/config.go
 --- a/staging/src/k8s.io/apiserver/pkg/server/config.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/config.go
-@@ -1009,16 +1009,25 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G
+@@ -1030,16 +1030,25 @@ func (c completedConfig) New(name string, delegationTarget DelegationTarget) (*G
  func BuildHandlerChainWithStorageVersionPrecondition(apiHandler http.Handler, c *Config) http.Handler {
  	// WithStorageVersionPrecondition needs the WithRequestInfo to run first
  	handler := genericapifilters.WithStorageVersionPrecondition(apiHandler, c.StorageVersionManager, c.Serializer)
@@ -40,6 +40,3 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/server/config.go b/staging/src/k8s
  	if c.FlowControl != nil {
  		workEstimatorCfg := flowcontrolrequest.DefaultWorkEstimatorConfig()
  		requestWorkEstimator := flowcontrolrequest.NewWorkEstimator(
--- 
-2.54.0
-

@@ -1,7 +1,7 @@
-From 4fc637d42092ad181d91f37ed3279328abc51798 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Sun, 12 Apr 2026 00:51:33 +0200
-Subject: [PATCH 67/73] UPSTREAM: <carry>: Add
+Subject: [PATCH] UPSTREAM: <carry>: Add
  garbagecollector.WithCluster/.ClusterFrom
 
 Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
@@ -50,6 +50,3 @@ new file mode 100644
 +	v, _ := ctx.Value(clusterContextKey{}).(logicalcluster.Name)
 +	return v
 +}
--- 
-2.54.0
-

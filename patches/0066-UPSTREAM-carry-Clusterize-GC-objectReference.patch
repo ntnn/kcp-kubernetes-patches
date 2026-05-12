@@ -1,7 +1,7 @@
-From 1e8b3854093a3dfedc008c7365a9368dcf7f8c52 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Nelo-T. Wallus" <n.wallus@sap.com>
 Date: Sun, 12 Apr 2026 00:07:03 +0200
-Subject: [PATCH 66/73] UPSTREAM: <carry>: Clusterize GC objectReference
+Subject: [PATCH] UPSTREAM: <carry>: Clusterize GC objectReference
 
 Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
 Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
@@ -78,7 +78,7 @@ diff --git a/pkg/controller/garbagecollector/graph.go b/pkg/controller/garbageco
 diff --git a/pkg/controller/garbagecollector/graph_builder.go b/pkg/controller/garbagecollector/graph_builder.go
 --- a/pkg/controller/garbagecollector/graph_builder.go
 +++ b/pkg/controller/garbagecollector/graph_builder.go
-@@ -452,6 +452,7 @@ func (gb *GraphBuilder) addDependentToOwners(logger klog.Logger, n *node, owners
+@@ -453,6 +453,7 @@ func (gb *GraphBuilder) addDependentToOwners(logger klog.Logger, n *node, owners
  				identity: objectReference{
  					OwnerReference: ownerReferenceCoordinates(owner),
  					Namespace:      n.identity.Namespace,
@@ -86,7 +86,7 @@ diff --git a/pkg/controller/garbagecollector/graph_builder.go b/pkg/controller/g
  				},
  				dependents: make(map[*node]struct{}),
  				virtual:    true,
-@@ -529,6 +530,7 @@ func (gb *GraphBuilder) reportInvalidNamespaceOwnerRef(n *node, invalidOwnerUID
+@@ -530,6 +531,7 @@ func (gb *GraphBuilder) reportInvalidNamespaceOwnerRef(n *node, invalidOwnerUID
  			UID:        invalidOwnerRef.UID,
  		},
  		Namespace: n.identity.Namespace,
@@ -94,7 +94,7 @@ diff --git a/pkg/controller/garbagecollector/graph_builder.go b/pkg/controller/g
  	}
  	gb.eventRecorder.Eventf(ref, v1.EventTypeWarning, "OwnerRefInvalidNamespace", "ownerRef %s does not exist in namespace %q", invalidIdentity, n.identity.Namespace)
  }
-@@ -699,6 +701,7 @@ func identityFromEvent(event *event, accessor metav1.Object) objectReference {
+@@ -695,6 +697,7 @@ func identityFromEvent(event *event, accessor metav1.Object) objectReference {
  			Name:       accessor.GetName(),
  		},
  		Namespace: accessor.GetNamespace(),
@@ -102,6 +102,3 @@ diff --git a/pkg/controller/garbagecollector/graph_builder.go b/pkg/controller/g
  	}
  }
  
--- 
-2.54.0
-

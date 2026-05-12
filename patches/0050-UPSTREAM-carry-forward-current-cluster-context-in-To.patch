@@ -1,7 +1,7 @@
-From 06910e70ce14e50538cb375d889b6786e517602e Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Christoph Mewes <christoph@kubermatic.com>
 Date: Thu, 2 Oct 2025 20:47:46 +0200
-Subject: [PATCH 50/73] UPSTREAM: <carry>: forward current cluster context in
+Subject: [PATCH] UPSTREAM: <carry>: forward current cluster context in
  TokenReviews
 
 On-behalf-of: @SAP christoph.mewes@sap.com
@@ -28,6 +28,3 @@ diff --git a/pkg/registry/authentication/tokenreview/storage.go b/pkg/registry/a
  	auds := tokenReview.Spec.Audiences
  	if len(auds) == 0 {
  		auds = r.apiAudiences
--- 
-2.54.0
-

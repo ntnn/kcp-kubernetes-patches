@@ -1,7 +1,7 @@
-From 064032a76dd18e4276c7cae058e441ec512bfcf5 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Marko=20Mudrini=C4=87?= <mudrinic.mare@gmail.com>
 Date: Wed, 18 Feb 2026 12:33:59 +0100
-Subject: [PATCH 58/73] UPSTREAM: <carry>: Migrate to storagemigrations/v1beta1
+Subject: [PATCH] UPSTREAM: <carry>: Migrate to storagemigrations/v1beta1
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -32,6 +32,3 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/clientsethack/adapter.go b/staging
  	panic("programmer error: using a cluster-unaware clientset, need to cast this to use the cluster-aware one!")
  }
  
--- 
-2.54.0
-

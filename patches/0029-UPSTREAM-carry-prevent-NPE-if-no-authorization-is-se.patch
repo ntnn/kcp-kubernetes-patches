@@ -1,8 +1,7 @@
-From 33292beed1a9049272402228e61375d1d182bd70 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Marvin Beckers <marvin@kubermatic.com>
 Date: Fri, 21 Jun 2024 15:32:59 +0200
-Subject: [PATCH 29/73] UPSTREAM: <carry>: prevent NPE if no authorization is
- set
+Subject: [PATCH] UPSTREAM: <carry>: prevent NPE if no authorization is set
 
 Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
 ---
@@ -23,6 +22,3 @@ diff --git a/pkg/controlplane/apiserver/options/options.go b/pkg/controlplane/ap
  	// adjust authentication for completed authorization
  	completed.Authentication.ApplyAuthorization(completed.Authorization)
  
--- 
-2.54.0
-

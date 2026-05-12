@@ -1,8 +1,7 @@
-From bd35db0b9b07cec1e49fdf94fb461fe51e222d6d Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Marvin Beckers <marvin@kubermatic.com>
 Date: Thu, 20 Jun 2024 14:28:07 +0200
-Subject: [PATCH 27/73] UPSTREAM: <carry>: remove REST mapper from admission
- plugins
+Subject: [PATCH] UPSTREAM: <carry>: remove REST mapper from admission plugins
 
 Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
 ---
@@ -71,7 +70,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/admission.go b/stag
  	genericInitializer := initializer.New(kubeClient, dynamicClient, informers, c.Authorization.Authorizer, features,
 -		effectiveVersion, c.DrainedNotify(), discoveryRESTMapper)
 +		effectiveVersion, c.DrainedNotify(), nil)
- 	initializersChain := admission.PluginInitializers{genericInitializer}
+ 	initializersChain := admission.PluginInitializers{initializer.NewAPIServerIDInitializer(c.APIServerID), genericInitializer}
  	initializersChain = append(initializersChain, pluginInitializers...)
  
 -	admissionPostStartHook := func(hookContext server.PostStartHookContext) error {
@@ -134,6 +133,3 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_kcp_tes
  		},
  	}
  
--- 
-2.54.0
-

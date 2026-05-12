@@ -1,7 +1,7 @@
-From 32413a33be89696c7d238075401946647ee3c173 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 16:03:58 +0200
-Subject: [PATCH 14/73] UPSTREAM: <carry>: apiserver: partial wildcard metadata
+Subject: [PATCH] UPSTREAM: <carry>: apiserver: partial wildcard metadata
  request accross identities
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
@@ -94,6 +94,3 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go b/stagi
  }
  
  // adjustShardNameIfWildcard determines a shard name. If this is not a shard-wildcard request,
--- 
-2.54.0
-

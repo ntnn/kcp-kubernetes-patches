@@ -1,8 +1,8 @@
-From 6ea2ba269916fdb63573b391c01abdc7febac521 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 13:55:13 +0200
-Subject: [PATCH 21/73] UPSTREAM: <carry>: storage: add
- UseResourceAsPrefixDefault for legacy storage paths
+Subject: [PATCH] UPSTREAM: <carry>: storage: add UseResourceAsPrefixDefault
+ for legacy storage paths
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
@@ -43,6 +43,3 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/server/storage/storage_factory.go 
 +
  	return etcdResourcePrefix
  }
--- 
-2.54.0
-

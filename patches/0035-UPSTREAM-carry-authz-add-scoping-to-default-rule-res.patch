@@ -1,7 +1,7 @@
-From 5e5212cd777798bdad63c1e10461908120689366 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Fri, 23 Aug 2024 08:23:28 +0200
-Subject: [PATCH 35/73] UPSTREAM: <carry>: authz: add scoping to default rule
+Subject: [PATCH] UPSTREAM: <carry>: authz: add scoping to default rule
  resolver
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
@@ -417,6 +417,3 @@ diff --git a/pkg/registry/rbac/validation/rule_test.go b/pkg/registry/rbac/valid
  		if got != tc.appliesTo {
  			t.Errorf("case %q want appliesTo=%t, got appliesTo=%t", tc.testCase, tc.appliesTo, got)
  		}
--- 
-2.54.0
-

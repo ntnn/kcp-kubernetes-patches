@@ -1,7 +1,7 @@
-From 377977553be0836dfd405b2dc4fc83c125779654 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 13:30:16 +0200
-Subject: [PATCH 10/73] UPSTREAM: <carry>: clusterize storage hash
+Subject: [PATCH] UPSTREAM: <carry>: clusterize storage hash
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
@@ -54,6 +54,3 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/installer.go b/staging/s
  	}
  
  	// Get the list of actions for the given scope.
--- 
-2.54.0
-

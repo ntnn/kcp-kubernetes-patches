@@ -1,8 +1,7 @@
-From 0c4d3faa8193fec63fb80d46fb002ae681fce62c Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 13:31:24 +0200
-Subject: [PATCH 11/73] UPSTREAM: <carry>: endpoints: add Cluster struct for
- ctx
+Subject: [PATCH] UPSTREAM: <carry>: endpoints: add Cluster struct for ctx
 
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
@@ -125,6 +124,3 @@ new file mode 100644
 +	}
 +	return cluster.Name, nil
 +}
--- 
-2.54.0
-

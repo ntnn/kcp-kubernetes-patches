@@ -25,7 +25,7 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 diff --git a/staging/src/k8s.io/code-generator/kube_codegen.sh b/staging/src/k8s.io/code-generator/kube_codegen.sh
 --- a/staging/src/k8s.io/code-generator/kube_codegen.sh
 +++ b/staging/src/k8s.io/code-generator/kube_codegen.sh
-@@ -125,7 +125,6 @@ function kube::codegen::gen_helpers() {
+@@ -143,7 +143,6 @@ function kube::codegen::gen_helpers() {
              conversion-gen"${CODEGEN_VERSION_SPEC}"
              deepcopy-gen"${CODEGEN_VERSION_SPEC}"
              defaulter-gen"${CODEGEN_VERSION_SPEC}"

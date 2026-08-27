@@ -11,21 +11,21 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 ---
  cmd/kube-controller-manager/app/core.go       |   6 +-
  .../rootcacertpublisher/publisher.go          |  67 ++++--
- .../clusterroleaggregation_controller.go      |  57 +++--
- .../deletion/namespaced_resources_deleter.go  | 138 +++++++----
+ .../clusterroleaggregation_controller.go      |  53 +++--
+ .../deletion/namespaced_resources_deleter.go  | 138 ++++++++----
  .../namespaced_resources_deleter_test.go      |  15 +-
  .../namespace/namespace_controller.go         |  33 +--
  .../resource_quota_controller.go              |  16 +-
  .../resourcequota/resource_quota_monitor.go   |   2 +
  .../serviceaccounts_controller.go             |  42 ++--
- pkg/controller/serviceaccount/tokengetter.go  |  44 +++-
- .../serviceaccount/tokens_controller.go       | 214 +++++++++++++++---
+ pkg/controller/serviceaccount/tokengetter.go  |  41 +++-
+ .../serviceaccount/tokens_controller.go       | 213 +++++++++++++++---
  pkg/kubeapiserver/options/authentication.go   |   9 -
  pkg/serviceaccount/jwt.go                     |   7 +
  test/e2e/apimachinery/discovery.go            |   3 +-
  .../e2e_node/services/namespace_controller.go |   6 +-
  .../namespace/ns_conditions_test.go           |  17 +-
- 16 files changed, 503 insertions(+), 173 deletions(-)
+ 16 files changed, 498 insertions(+), 170 deletions(-)
 
 diff --git a/cmd/kube-controller-manager/app/core.go b/cmd/kube-controller-manager/app/core.go
 --- a/cmd/kube-controller-manager/app/core.go
@@ -38,8 +38,8 @@ diff --git a/cmd/kube-controller-manager/app/core.go b/cmd/kube-controller-manag
 +	"k8s.io/apimachinery/pkg/runtime/schema"
  	genericfeatures "k8s.io/apiserver/pkg/features"
  	"k8s.io/apiserver/pkg/quota/v1/generic"
- 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-@@ -663,7 +665,9 @@ func newModifiedNamespaceController(
+ 	"k8s.io/client-go/discovery"
+@@ -590,7 +592,9 @@ func newModifiedNamespaceController(
  		return nil, err
  	}
  
@@ -288,41 +288,26 @@ diff --git a/pkg/controller/clusterroleaggregation/clusterroleaggregation_contro
  		if err != nil {
  			return err
  		}
-@@ -129,7 +129,7 @@ func (c *ClusterRoleAggregationController) syncClusterRole(ctx context.Context,
+@@ -129,15 +129,15 @@ func (c *ClusterRoleAggregationController) syncClusterRole(ctx context.Context,
  		return nil
  	}
  
--	err = c.applyClusterRoles(ctx, sharedClusterRole.Name, newPolicyRules)
-+	err = c.applyClusterRoles(ctx, sharedClusterRole, newPolicyRules)
- 	if errors.IsUnsupportedMediaType(err) { // TODO: Remove this fallback at least one release after ServerSideApply GA
- 		// When Server Side Apply is not enabled, fallback to Update. This is required when running
- 		// 1.21 since api-server can be 1.20 during the upgrade/downgrade.
-@@ -140,12 +140,12 @@ func (c *ClusterRoleAggregationController) syncClusterRole(ctx context.Context,
- 	return err
+-	return c.applyClusterRoles(ctx, sharedClusterRole.Name, newPolicyRules)
++	return c.applyClusterRoles(ctx, logicalcluster.From(sharedClusterRole).Path(), sharedClusterRole.Name, newPolicyRules)
  }
  
 -func (c *ClusterRoleAggregationController) applyClusterRoles(ctx context.Context, name string, newPolicyRules []rbacv1.PolicyRule) error {
--	clusterRoleApply := rbacv1ac.ClusterRole(name).
-+func (c *ClusterRoleAggregationController) applyClusterRoles(ctx context.Context, sharedClusterRole *rbacv1.ClusterRole, newPolicyRules []rbacv1.PolicyRule) error {
-+	clusterRoleApply := rbacv1ac.ClusterRole(sharedClusterRole.Name).
++func (c *ClusterRoleAggregationController) applyClusterRoles(ctx context.Context, clusterPath logicalcluster.Path, name string, newPolicyRules []rbacv1.PolicyRule) error {
+ 	clusterRoleApply := rbacv1ac.ClusterRole(name).
  		WithRules(toApplyPolicyRules(newPolicyRules)...)
  
  	opts := metav1.ApplyOptions{FieldManager: "clusterrole-aggregation-controller", Force: true}
 -	_, err := c.clusterRoleClient.ClusterRoles().Apply(ctx, clusterRoleApply, opts)
-+	_, err := c.clusterRoleClient.ClusterRoles().Cluster(logicalcluster.From(sharedClusterRole).Path()).Apply(ctx, clusterRoleApply, opts)
++	_, err := c.clusterRoleClient.ClusterRoles().Cluster(clusterPath).Apply(ctx, clusterRoleApply, opts)
  	return err
  }
  
-@@ -155,7 +155,7 @@ func (c *ClusterRoleAggregationController) updateClusterRoles(ctx context.Contex
- 	for _, rule := range newPolicyRules {
- 		clusterRole.Rules = append(clusterRole.Rules, *rule.DeepCopy())
- 	}
--	_, err := c.clusterRoleClient.ClusterRoles().Update(ctx, clusterRole, metav1.UpdateOptions{})
-+	_, err := c.clusterRoleClient.ClusterRoles().Cluster(logicalcluster.From(sharedClusterRole).Path()).Update(ctx, clusterRole, metav1.UpdateOptions{})
- 	return err
- }
- 
-@@ -236,11 +236,22 @@ func (c *ClusterRoleAggregationController) processNextWorkItem(ctx context.Conte
+@@ -218,11 +218,22 @@ func (c *ClusterRoleAggregationController) processNextWorkItem(ctx context.Conte
  	return true
  }
  
@@ -347,7 +332,7 @@ diff --git a/pkg/controller/clusterroleaggregation/clusterroleaggregation_contro
  	if err != nil {
  		utilruntime.HandleError(fmt.Errorf("Couldn't list all objects %v", err))
  		return
-@@ -250,7 +261,7 @@ func (c *ClusterRoleAggregationController) enqueue() {
+@@ -232,7 +243,7 @@ func (c *ClusterRoleAggregationController) enqueue() {
  		if clusterRole.AggregationRule == nil {
  			continue
  		}
@@ -1071,7 +1056,7 @@ diff --git a/pkg/controller/serviceaccount/serviceaccounts_controller.go b/pkg/c
 diff --git a/pkg/controller/serviceaccount/tokengetter.go b/pkg/controller/serviceaccount/tokengetter.go
 --- a/pkg/controller/serviceaccount/tokengetter.go
 +++ b/pkg/controller/serviceaccount/tokengetter.go
-@@ -14,11 +14,18 @@ See the License for the specific language governing permissions and
+@@ -14,11 +14,17 @@ See the License for the specific language governing permissions and
  limitations under the License.
  */
  
@@ -1081,17 +1066,15 @@ diff --git a/pkg/controller/serviceaccount/tokengetter.go b/pkg/controller/servi
  
  import (
  	"context"
--	"k8s.io/api/core/v1"
-+
+ 
 +	kcpkubernetesclientset "github.com/kcp-dev/client-go/kubernetes"
 +	kcpcorev1listers "github.com/kcp-dev/client-go/listers/core/v1"
 +	"github.com/kcp-dev/logicalcluster/v3"
 +
-+	v1 "k8s.io/api/core/v1"
+ 	v1 "k8s.io/api/core/v1"
  	apierrors "k8s.io/apimachinery/pkg/api/errors"
  	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
- 	clientset "k8s.io/client-go/kubernetes"
-@@ -26,6 +33,29 @@ import (
+@@ -27,6 +33,29 @@ import (
  	"k8s.io/kubernetes/pkg/serviceaccount"
  )
  
@@ -1121,7 +1104,7 @@ diff --git a/pkg/controller/serviceaccount/tokengetter.go b/pkg/controller/servi
  // clientGetter implements ServiceAccountTokenGetter using a clientset.Interface
  type clientGetter struct {
  	client               clientset.Interface
-@@ -39,8 +69,12 @@ type clientGetter struct {
+@@ -40,8 +69,12 @@ type clientGetter struct {
  // uses the specified client to retrieve service accounts, pods, secrets and nodes.
  // The client should NOT authenticate using a service account token
  // the returned getter will be used to retrieve, or recursion will result.
@@ -1135,17 +1118,17 @@ diff --git a/pkg/controller/serviceaccount/tokengetter.go b/pkg/controller/servi
 +	}
  }
  
- func (c clientGetter) GetServiceAccount(namespace, name string) (*v1.ServiceAccount, error) {
-@@ -51,8 +85,8 @@ func (c clientGetter) GetServiceAccount(namespace, name string) (*v1.ServiceAcco
+ func (c clientGetter) GetServiceAccount(ctx context.Context, namespace, name string) (*v1.ServiceAccount, error) {
+@@ -52,8 +85,8 @@ func (c clientGetter) GetServiceAccount(ctx context.Context, namespace, name str
  }
  
- func (c clientGetter) GetPod(namespace, name string) (*v1.Pod, error) {
+ func (c clientGetter) GetPod(ctx context.Context, namespace, name string) (*v1.Pod, error) {
 -	if pod, err := c.podLister.Pods(namespace).Get(name); err == nil {
 -		return pod, nil
 +	if c.podLister == nil {
 +		return nil, apierrors.NewNotFound(v1.Resource("pods"), name)
  	}
- 	return c.client.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+ 	return c.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
  }
 diff --git a/pkg/controller/serviceaccount/tokens_controller.go b/pkg/controller/serviceaccount/tokens_controller.go
 --- a/pkg/controller/serviceaccount/tokens_controller.go
@@ -1202,97 +1185,96 @@ diff --git a/pkg/controller/serviceaccount/tokens_controller.go b/pkg/controller
  
  	// Since we join two objects, we'll watch both of them with controllers.
  	serviceAccountSynced cache.InformerSynced
-@@ -251,7 +253,7 @@ func (e *TokensController) syncServiceAccount(ctx context.Context) {
+@@ -256,7 +258,7 @@ func (e *TokensController) syncServiceAccount(ctx context.Context) {
  		return
  	}
  
--	sa, err := e.getServiceAccount(saInfo.namespace, saInfo.name, saInfo.uid, false)
-+	sa, err := e.getServiceAccount(saInfo.clusterName, saInfo.namespace, saInfo.name, saInfo.uid, false)
+-	sa, err := e.getServiceAccount(ctx, saInfo.namespace, saInfo.name, saInfo.uid, false)
++	sa, err := e.getServiceAccount(ctx, saInfo.clusterName, saInfo.namespace, saInfo.name, saInfo.uid, false)
  	switch {
  	case err != nil:
  		logger.Error(err, "Getting service account")
-@@ -259,7 +261,7 @@ func (e *TokensController) syncServiceAccount(ctx context.Context) {
+@@ -264,7 +266,7 @@ func (e *TokensController) syncServiceAccount(ctx context.Context) {
  	case sa == nil:
  		// service account no longer exists, so delete related tokens
  		logger.V(4).Info("Service account deleted, removing tokens", "namespace", saInfo.namespace, "serviceaccount", saInfo.name)
 -		sa = &v1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Namespace: saInfo.namespace, Name: saInfo.name, UID: saInfo.uid}}
 +		sa = &v1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{logicalcluster.AnnotationKey: saInfo.clusterName.String()}, Namespace: saInfo.namespace, Name: saInfo.name, UID: saInfo.uid}}
- 		retry, err = e.deleteTokens(sa)
+ 		retry, err = e.deleteTokens(ctx, sa)
  		if err != nil {
  			logger.Error(err, "Error deleting serviceaccount tokens", "namespace", saInfo.namespace, "serviceaccount", saInfo.name)
-@@ -287,24 +289,24 @@ func (e *TokensController) syncSecret(ctx context.Context) {
+@@ -292,24 +294,24 @@ func (e *TokensController) syncSecret(ctx context.Context) {
  		return
  	}
  
--	secret, err := e.getSecret(secretInfo.namespace, secretInfo.name, secretInfo.uid)
-+	secret, err := e.getSecret(secretInfo.clusterName, secretInfo.namespace, secretInfo.name, secretInfo.uid)
+-	secret, err := e.getSecret(ctx, secretInfo.namespace, secretInfo.name, secretInfo.uid)
++	secret, err := e.getSecret(ctx, secretInfo.clusterName, secretInfo.namespace, secretInfo.name, secretInfo.uid)
  	switch {
  	case err != nil:
  		logger.Error(err, "Getting secret")
  		retry = true
  	case secret == nil:
  		// If the service account exists
--		if sa, saErr := e.getServiceAccount(secretInfo.namespace, secretInfo.saName, secretInfo.saUID, false); saErr == nil && sa != nil {
-+		if sa, saErr := e.getServiceAccount(secretInfo.clusterName, secretInfo.namespace, secretInfo.saName, secretInfo.saUID, false); saErr == nil && sa != nil {
+-		if sa, saErr := e.getServiceAccount(ctx, secretInfo.namespace, secretInfo.saName, secretInfo.saUID, false); saErr == nil && sa != nil {
++		if sa, saErr := e.getServiceAccount(ctx, secretInfo.clusterName, secretInfo.namespace, secretInfo.saName, secretInfo.saUID, false); saErr == nil && sa != nil {
  			// secret no longer exists, so delete references to this secret from the service account
  			if err := clientretry.RetryOnConflict(RemoveTokenBackoff, func() error {
--				return e.removeSecretReference(secretInfo.namespace, secretInfo.saName, secretInfo.saUID, secretInfo.name)
-+				return e.removeSecretReference(secretInfo.clusterName, secretInfo.namespace, secretInfo.saName, secretInfo.saUID, secretInfo.name)
+-				return e.removeSecretReference(ctx, secretInfo.namespace, secretInfo.saName, secretInfo.saUID, secretInfo.name)
++				return e.removeSecretReference(ctx, secretInfo.clusterName, secretInfo.namespace, secretInfo.saName, secretInfo.saUID, secretInfo.name)
  			}); err != nil {
  				logger.Error(err, "Removing secret reference")
  			}
  		}
  	default:
  		// Ensure service account exists
--		sa, saErr := e.getServiceAccount(secretInfo.namespace, secretInfo.saName, secretInfo.saUID, true)
-+		sa, saErr := e.getServiceAccount(secretInfo.clusterName, secretInfo.namespace, secretInfo.saName, secretInfo.saUID, true)
+-		sa, saErr := e.getServiceAccount(ctx, secretInfo.namespace, secretInfo.saName, secretInfo.saUID, true)
++		sa, saErr := e.getServiceAccount(ctx, secretInfo.clusterName, secretInfo.namespace, secretInfo.saName, secretInfo.saUID, true)
  		switch {
  		case saErr != nil:
  			logger.Error(saErr, "Getting service account")
-@@ -312,14 +314,14 @@ func (e *TokensController) syncSecret(ctx context.Context) {
+@@ -317,14 +319,14 @@ func (e *TokensController) syncSecret(ctx context.Context) {
  		case sa == nil:
  			// Delete token
  			logger.V(4).Info("Service account does not exist, deleting token", "secret", klog.KRef(secretInfo.namespace, secretInfo.name))
--			if retriable, err := e.deleteToken(secretInfo.namespace, secretInfo.name, secretInfo.uid); err != nil {
+-			if retriable, err := e.deleteToken(ctx, secretInfo.namespace, secretInfo.name, secretInfo.uid); err != nil {
 -				logger.Error(err, "Deleting serviceaccount token", "secret", klog.KRef(secretInfo.namespace, secretInfo.name), "serviceAccount", klog.KRef(secretInfo.namespace, secretInfo.saName))
-+			if retriable, err := e.deleteToken(secretInfo.clusterName, secretInfo.namespace, secretInfo.name, secretInfo.uid); err != nil {
++			if retriable, err := e.deleteToken(ctx, secretInfo.clusterName, secretInfo.namespace, secretInfo.name, secretInfo.uid); err != nil {
 +				logger.Error(err, "Deleting serviceaccount token", "secret", klog.KRef(secretInfo.namespace, secretInfo.name), "serviceAccount", klog.KRef(secretInfo.namespace, secretInfo.saName), "cluster", secretInfo.clusterName)
  				retry = retriable
  			}
  		default:
  			// Update token if needed
- 			if retriable, err := e.generateTokenIfNeeded(logger, sa, secret); err != nil {
+ 			if retriable, err := e.generateTokenIfNeeded(ctx, sa, secret); err != nil {
 -				logger.Error(err, "Populating serviceaccount token", "secret", klog.KRef(secretInfo.namespace, secretInfo.name), "serviceAccount", klog.KRef(secretInfo.namespace, secretInfo.saName))
 +				logger.Error(err, "Populating serviceaccount token", "secret", klog.KRef(secretInfo.namespace, secretInfo.name), "serviceAccount", klog.KRef(secretInfo.namespace, secretInfo.saName), "cluster", secretInfo.clusterName)
  				retry = retriable
  			}
  		}
-@@ -335,7 +337,7 @@ func (e *TokensController) deleteTokens(serviceAccount *v1.ServiceAccount) ( /*r
+@@ -340,7 +342,7 @@ func (e *TokensController) deleteTokens(ctx context.Context, serviceAccount *v1.
  	retry := false
  	errs := []error{}
  	for _, token := range tokens {
--		r, err := e.deleteToken(token.Namespace, token.Name, token.UID)
-+		r, err := e.deleteToken(logicalcluster.From(token), token.Namespace, token.Name, token.UID)
+-		r, err := e.deleteToken(ctx, token.Namespace, token.Name, token.UID)
++		r, err := e.deleteToken(ctx, logicalcluster.From(token), token.Namespace, token.Name, token.UID)
  		if err != nil {
  			errs = append(errs, err)
  		}
-@@ -346,12 +348,13 @@ func (e *TokensController) deleteTokens(serviceAccount *v1.ServiceAccount) ( /*r
+@@ -351,12 +353,12 @@ func (e *TokensController) deleteTokens(ctx context.Context, serviceAccount *v1.
  	return retry, utilerrors.NewAggregate(errs)
  }
  
--func (e *TokensController) deleteToken(ns, name string, uid types.UID) ( /*retry*/ bool, error) {
-+func (e *TokensController) deleteToken(clusterName logicalcluster.Name, ns, name string, uid types.UID) ( /*retry*/ bool, error) {
+-func (e *TokensController) deleteToken(ctx context.Context, ns, name string, uid types.UID) ( /*retry*/ bool, error) {
++func (e *TokensController) deleteToken(ctx context.Context, clusterName logicalcluster.Name, ns, name string, uid types.UID) ( /*retry*/ bool, error) {
  	var opts metav1.DeleteOptions
  	if len(uid) > 0 {
  		opts.Preconditions = &metav1.Preconditions{UID: &uid}
  	}
--	err := e.client.CoreV1().Secrets(ns).Delete(context.TODO(), name, opts)
-+
-+	err := e.client.Cluster(clusterName.Path()).CoreV1().Secrets(ns).Delete(context.TODO(), name, opts)
+-	err := e.client.CoreV1().Secrets(ns).Delete(ctx, name, opts)
++	err := e.client.Cluster(clusterName.Path()).CoreV1().Secrets(ns).Delete(ctx, name, opts)
  	// NotFound doesn't need a retry (it's already been deleted)
  	// Conflict doesn't need a retry (the UID precondition failed)
  	if err == nil || apierrors.IsNotFound(err) || apierrors.IsConflict(err) {
-@@ -361,6 +364,149 @@ func (e *TokensController) deleteToken(ns, name string, uid types.UID) ( /*retry
+@@ -366,6 +368,149 @@ func (e *TokensController) deleteToken(ctx context.Context, ns, name string, uid
  	return true, err
  }
  
@@ -1442,7 +1424,7 @@ diff --git a/pkg/controller/serviceaccount/tokens_controller.go b/pkg/controller
  func (e *TokensController) secretUpdateNeeded(secret *v1.Secret) (bool, bool, bool) {
  	caData := secret.Data[v1.ServiceAccountRootCAKey]
  	needsCA := len(e.rootCA) > 0 && !bytes.Equal(caData, e.rootCA)
-@@ -380,9 +526,11 @@ func (e *TokensController) generateTokenIfNeeded(logger klog.Logger, serviceAcco
+@@ -385,9 +530,11 @@ func (e *TokensController) generateTokenIfNeeded(ctx context.Context, serviceAcc
  		return false, nil
  	}
  
@@ -1452,65 +1434,65 @@ diff --git a/pkg/controller/serviceaccount/tokens_controller.go b/pkg/controller
  	// so add the token to a freshly retrieved copy of the secret
 -	secrets := e.client.CoreV1().Secrets(cachedSecret.Namespace)
 +	secrets := e.client.Cluster(clusterName.Path()).CoreV1().Secrets(cachedSecret.Namespace)
- 	liveSecret, err := secrets.Get(context.TODO(), cachedSecret.Name, metav1.GetOptions{})
+ 	liveSecret, err := secrets.Get(ctx, cachedSecret.Name, metav1.GetOptions{})
  	if err != nil {
  		// Retry for any error other than a NotFound
-@@ -391,7 +539,7 @@ func (e *TokensController) generateTokenIfNeeded(logger klog.Logger, serviceAcco
+@@ -396,7 +543,7 @@ func (e *TokensController) generateTokenIfNeeded(ctx context.Context, serviceAcc
  	if liveSecret.ResourceVersion != cachedSecret.ResourceVersion {
  		// our view of the secret is not up to date
  		// we'll get notified of an update event later and get to try again
--		logger.V(2).Info("Secret is not up to date, skipping token population", "secret", klog.KRef(liveSecret.Namespace, liveSecret.Name))
-+		logger.V(2).Info("Secret is not up to date, skipping token population", "secret", klog.KRef(liveSecret.Namespace, liveSecret.Name), "cluster", clusterName)
+-		klog.FromContext(ctx).V(2).Info("Secret is not up to date, skipping token population", "secret", klog.KRef(liveSecret.Namespace, liveSecret.Name))
++		klog.FromContext(ctx).V(2).Info("Secret is not up to date, skipping token population", "secret", klog.KRef(liveSecret.Namespace, liveSecret.Name), "cluster", clusterName)
  		return false, nil
  	}
  
-@@ -445,10 +593,10 @@ func (e *TokensController) generateTokenIfNeeded(logger klog.Logger, serviceAcco
+@@ -449,10 +596,10 @@ func (e *TokensController) generateTokenIfNeeded(ctx context.Context, serviceAcc
  }
  
  // removeSecretReference updates the given ServiceAccount to remove a reference to the given secretName if needed.
--func (e *TokensController) removeSecretReference(saNamespace string, saName string, saUID types.UID, secretName string) error {
-+func (e *TokensController) removeSecretReference(saClusterName logicalcluster.Name, saNamespace string, saName string, saUID types.UID, secretName string) error {
+-func (e *TokensController) removeSecretReference(ctx context.Context, saNamespace string, saName string, saUID types.UID, secretName string) error {
++func (e *TokensController) removeSecretReference(ctx context.Context, saClusterName logicalcluster.Name, saNamespace string, saName string, saUID types.UID, secretName string) error {
  	// We don't want to update the cache's copy of the service account
  	// so remove the secret from a freshly retrieved copy of the service account
 -	serviceAccounts := e.client.CoreV1().ServiceAccounts(saNamespace)
 +	serviceAccounts := e.client.Cluster(saClusterName.Path()).CoreV1().ServiceAccounts(saNamespace)
- 	serviceAccount, err := serviceAccounts.Get(context.TODO(), saName, metav1.GetOptions{})
+ 	serviceAccount, err := serviceAccounts.Get(ctx, saName, metav1.GetOptions{})
  	// Ignore NotFound errors when attempting to remove a reference
  	if apierrors.IsNotFound(err) {
-@@ -484,9 +632,9 @@ func (e *TokensController) removeSecretReference(saNamespace string, saName stri
+@@ -488,9 +635,9 @@ func (e *TokensController) removeSecretReference(ctx context.Context, saNamespac
  	return err
  }
  
--func (e *TokensController) getServiceAccount(ns string, name string, uid types.UID, fetchOnCacheMiss bool) (*v1.ServiceAccount, error) {
-+func (e *TokensController) getServiceAccount(clusterName logicalcluster.Name, ns string, name string, uid types.UID, fetchOnCacheMiss bool) (*v1.ServiceAccount, error) {
+-func (e *TokensController) getServiceAccount(ctx context.Context, ns string, name string, uid types.UID, fetchOnCacheMiss bool) (*v1.ServiceAccount, error) {
++func (e *TokensController) getServiceAccount(ctx context.Context, clusterName logicalcluster.Name, ns string, name string, uid types.UID, fetchOnCacheMiss bool) (*v1.ServiceAccount, error) {
  	// Look up in cache
 -	sa, err := e.serviceAccounts.ServiceAccounts(ns).Get(name)
 +	sa, err := e.serviceAccounts.Cluster(clusterName).ServiceAccounts(ns).Get(name)
  	if err != nil && !apierrors.IsNotFound(err) {
  		return nil, err
  	}
-@@ -502,7 +650,7 @@ func (e *TokensController) getServiceAccount(ns string, name string, uid types.U
+@@ -506,7 +653,7 @@ func (e *TokensController) getServiceAccount(ctx context.Context, ns string, nam
  	}
  
  	// Live lookup
--	sa, err = e.client.CoreV1().ServiceAccounts(ns).Get(context.TODO(), name, metav1.GetOptions{})
-+	sa, err = e.client.Cluster(clusterName.Path()).CoreV1().ServiceAccounts(ns).Get(context.TODO(), name, metav1.GetOptions{})
+-	sa, err = e.client.CoreV1().ServiceAccounts(ns).Get(ctx, name, metav1.GetOptions{})
++	sa, err = e.client.Cluster(clusterName.Path()).CoreV1().ServiceAccounts(ns).Get(ctx, name, metav1.GetOptions{})
  	if apierrors.IsNotFound(err) {
  		return nil, nil
  	}
-@@ -516,9 +664,9 @@ func (e *TokensController) getServiceAccount(ns string, name string, uid types.U
+@@ -520,9 +667,9 @@ func (e *TokensController) getServiceAccount(ctx context.Context, ns string, nam
  	return nil, nil
  }
  
--func (e *TokensController) getSecret(ns string, name string, uid types.UID) (*v1.Secret, error) {
-+func (e *TokensController) getSecret(clusterName logicalcluster.Name, ns string, name string, uid types.UID) (*v1.Secret, error) {
+-func (e *TokensController) getSecret(ctx context.Context, ns string, name string, uid types.UID) (*v1.Secret, error) {
++func (e *TokensController) getSecret(ctx context.Context, clusterName logicalcluster.Name, ns string, name string, uid types.UID) (*v1.Secret, error) {
  	// Look up in cache
 -	secret, err := e.secrets.Secrets(ns).Get(name)
 +	secret, err := e.secrets.Cluster(clusterName).Secrets(ns).Get(name)
  	if err != nil {
  		if apierrors.IsNotFound(err) {
  			return nil, nil
-@@ -537,7 +685,7 @@ func (e *TokensController) getSecret(ns string, name string, uid types.UID) (*v1
+@@ -541,7 +688,7 @@ func (e *TokensController) getSecret(ctx context.Context, ns string, name string
  // listTokenSecrets returns a list of all the ServiceAccountToken secrets that
  // reference the given service account's name and uid
  func (e *TokensController) listTokenSecrets(serviceAccount *v1.ServiceAccount) ([]*v1.Secret, error) {
@@ -1519,7 +1501,7 @@ diff --git a/pkg/controller/serviceaccount/tokens_controller.go b/pkg/controller
  	if err != nil {
  		return nil, err
  	}
-@@ -563,6 +711,8 @@ func getSecretReferences(serviceAccount *v1.ServiceAccount) sets.String {
+@@ -567,6 +714,8 @@ func getSecretReferences(serviceAccount *v1.ServiceAccount) sets.String {
  // It contains enough information to look up the cached service account,
  // or delete owned tokens if the service account no longer exists.
  type serviceAccountQueueKey struct {
@@ -1528,7 +1510,7 @@ diff --git a/pkg/controller/serviceaccount/tokens_controller.go b/pkg/controller
  	namespace string
  	name      string
  	uid       types.UID
-@@ -570,6 +720,8 @@ type serviceAccountQueueKey struct {
+@@ -574,6 +723,8 @@ type serviceAccountQueueKey struct {
  
  func makeServiceAccountKey(sa *v1.ServiceAccount) serviceAccountQueueKey {
  	return serviceAccountQueueKey{
@@ -1537,7 +1519,7 @@ diff --git a/pkg/controller/serviceaccount/tokens_controller.go b/pkg/controller
  		namespace: sa.Namespace,
  		name:      sa.Name,
  		uid:       sa.UID,
-@@ -588,6 +740,8 @@ func parseServiceAccountKey(key interface{}) (serviceAccountQueueKey, error) {
+@@ -592,6 +743,8 @@ func parseServiceAccountKey(key interface{}) (serviceAccountQueueKey, error) {
  // It contains enough information to look up the cached service account,
  // or delete the secret reference if the secret no longer exists.
  type secretQueueKey struct {
@@ -1546,7 +1528,7 @@ diff --git a/pkg/controller/serviceaccount/tokens_controller.go b/pkg/controller
  	namespace string
  	name      string
  	uid       types.UID
-@@ -598,6 +752,8 @@ type secretQueueKey struct {
+@@ -602,6 +755,8 @@ type secretQueueKey struct {
  
  func makeSecretQueueKey(secret *v1.Secret) secretQueueKey {
  	return secretQueueKey{
@@ -1558,7 +1540,7 @@ diff --git a/pkg/controller/serviceaccount/tokens_controller.go b/pkg/controller
 diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
 --- a/pkg/kubeapiserver/options/authentication.go
 +++ b/pkg/kubeapiserver/options/authentication.go
-@@ -50,14 +50,12 @@ import (
+@@ -51,14 +51,12 @@ import (
  	"k8s.io/apiserver/plugin/pkg/authenticator/token/oidc"
  	"k8s.io/client-go/informers"
  	"k8s.io/client-go/kubernetes"
@@ -1614,7 +1596,7 @@ diff --git a/pkg/serviceaccount/jwt.go b/pkg/serviceaccount/jwt.go
 +
  // ServiceAccountTokenGetter defines functions to retrieve a named service account and secret
  type ServiceAccountTokenGetter interface {
- 	GetServiceAccount(namespace, name string) (*v1.ServiceAccount, error)
+ 	GetServiceAccount(ctx context.Context, namespace, name string) (*v1.ServiceAccount, error)
 diff --git a/test/e2e/apimachinery/discovery.go b/test/e2e/apimachinery/discovery.go
 --- a/test/e2e/apimachinery/discovery.go
 +++ b/test/e2e/apimachinery/discovery.go
@@ -1673,7 +1655,7 @@ diff --git a/test/integration/namespace/ns_conditions_test.go b/test/integration
  	appsv1 "k8s.io/api/apps/v1"
  	corev1 "k8s.io/api/core/v1"
  	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-@@ -32,7 +36,6 @@ import (
+@@ -31,7 +35,6 @@ import (
  	"k8s.io/client-go/dynamic"
  	"k8s.io/client-go/informers"
  	clientset "k8s.io/client-go/kubernetes"

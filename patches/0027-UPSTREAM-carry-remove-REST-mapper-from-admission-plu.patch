@@ -70,7 +70,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/server/options/admission.go b/stag
  	genericInitializer := initializer.New(kubeClient, dynamicClient, informers, c.Authorization.Authorizer, features,
 -		effectiveVersion, c.DrainedNotify(), discoveryRESTMapper)
 +		effectiveVersion, c.DrainedNotify(), nil)
- 	initializersChain := admission.PluginInitializers{genericInitializer}
+ 	initializersChain := admission.PluginInitializers{initializer.NewAPIServerIDInitializer(c.APIServerID), genericInitializer}
  	initializersChain = append(initializersChain, pluginInitializers...)
  
 -	admissionPostStartHook := func(hookContext server.PostStartHookContext) error {

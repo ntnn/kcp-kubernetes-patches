@@ -1,0 +1,138 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mangirdas Judeikis <mangirdas@judeikis.lt>
+Date: Mon, 2 Mar 2026 08:34:23 +0200
+Subject: [PATCH] CARRY: Fix SA lookups
+
+---
+ pkg/kubeapiserver/authenticator/config.go |  8 +++--
+ pkg/serviceaccount/claims.go              | 37 +++++++++++++++++++++++
+ pkg/serviceaccount/claims_test.go         |  7 ++++-
+ 3 files changed, 48 insertions(+), 4 deletions(-)
+
+diff --git a/pkg/kubeapiserver/authenticator/config.go b/pkg/kubeapiserver/authenticator/config.go
+--- a/pkg/kubeapiserver/authenticator/config.go
++++ b/pkg/kubeapiserver/authenticator/config.go
+@@ -147,7 +147,7 @@ func (config Config) New(serverLifecycle context.Context) (authenticator.Request
+ 		tokenAuthenticators = append(tokenAuthenticators, serviceAccountAuth)
+ 	}
+ 	if len(config.ServiceAccountIssuers) > 0 && config.ServiceAccountPublicKeysGetter != nil {
+-		serviceAccountAuth, err := newServiceAccountAuthenticator(config.ServiceAccountIssuers, config.ServiceAccountPublicKeysGetter, config.APIAudiences, config.ServiceAccountTokenGetter)
++		serviceAccountAuth, err := newServiceAccountAuthenticator(config.ServiceAccountIssuers, config.ServiceAccountPublicKeysGetter, config.APIAudiences, config.ServiceAccountTokenGetter, config.ServiceAccountLookup)
+ 		if err != nil {
+ 			return nil, nil, nil, nil, err
+ 		}
+@@ -392,11 +392,13 @@ func newLegacyServiceAccountAuthenticator(publicKeysGetter serviceaccount.Public
+ }
+ 
+ // newServiceAccountAuthenticator returns an authenticator.Token or an error
+-func newServiceAccountAuthenticator(issuers []string, publicKeysGetter serviceaccount.PublicKeysGetter, apiAudiences authenticator.Audiences, serviceAccountGetter serviceaccount.ServiceAccountTokenClusterGetter) (authenticator.Token, error) {
++// KCP carry patch: added lookup parameter to respect --service-account-lookup flag
++// for JWT tokens in multi-shard environments.
++func newServiceAccountAuthenticator(issuers []string, publicKeysGetter serviceaccount.PublicKeysGetter, apiAudiences authenticator.Audiences, serviceAccountGetter serviceaccount.ServiceAccountTokenClusterGetter, lookup bool) (authenticator.Token, error) {
+ 	if publicKeysGetter == nil {
+ 		return nil, fmt.Errorf("no public key getter provided")
+ 	}
+-	tokenAuthenticator := serviceaccount.JWTTokenAuthenticator(issuers, publicKeysGetter, apiAudiences, serviceaccount.NewValidator(serviceAccountGetter))
++	tokenAuthenticator := serviceaccount.JWTTokenAuthenticator(issuers, publicKeysGetter, apiAudiences, serviceaccount.NewValidatorWithLookup(serviceAccountGetter, lookup))
+ 	return tokenAuthenticator, nil
+ }
+ 
+diff --git a/pkg/serviceaccount/claims.go b/pkg/serviceaccount/claims.go
+--- a/pkg/serviceaccount/claims.go
++++ b/pkg/serviceaccount/claims.go
+@@ -134,13 +134,24 @@ func Claims(sa core.ServiceAccount, pod *core.Pod, secret *core.Secret, node *co
+ }
+ 
+ func NewValidator(getter ServiceAccountTokenClusterGetter) Validator[privateClaims] {
++	return NewValidatorWithLookup(getter, true)
++}
++
++// NewValidatorWithLookup creates a validator with configurable lookup behavior.
++// When lookup is false, the validator skips verifying that the service account,
++// secret, pod, and node still exist. This is useful in multi-shard environments
++// where the validating server may not have access to the workspace containing the SA.
++// KCP carry patch: respect --service-account-lookup=false for JWT tokens.
++func NewValidatorWithLookup(getter ServiceAccountTokenClusterGetter, lookup bool) Validator[privateClaims] {
+ 	return &validator{
+ 		getter: getter,
++		lookup: lookup,
+ 	}
+ }
+ 
+ type validator struct {
+ 	getter ServiceAccountTokenClusterGetter
++	lookup bool
+ }
+ 
+ var _ = Validator[privateClaims](&validator{})
+@@ -181,6 +192,28 @@ func (v *validator) Validate(ctx context.Context, _ string, public *jwt.Claims,
+ 	podref := private.Kubernetes.Pod
+ 	noderef := private.Kubernetes.Node
+ 	secref := private.Kubernetes.Secret
++
++	// KCP carry patch: skip lookups when v.lookup is false.
++	// This is controlled by --service-account-lookup flag and is needed in multi-shard
++	// environments where the validating server may not have access to the workspace
++	// containing the service account.
++	if !v.lookup {
++		// When lookup is disabled, extract pod/node info from claims without verification.
++		// This is needed for multi-shard environments where the validating server
++		// may not have access to the workspace containing the service account.
++		var podName, podUID string
++		if podref != nil {
++			podName = podref.Name
++			podUID = podref.UID
++		}
++		var nodeName, nodeUID string
++		if noderef != nil {
++			nodeName = noderef.Name
++			nodeUID = noderef.UID
++		}
++		return v.finalize(ctx, "", public, private, nowTime, podName, podUID, nodeName, nodeUID)
++	}
++
+ 	// Make sure service account still exists (name and UID)
+ 	serviceAccount, err := v.getter.Cluster(clusterName).GetServiceAccount(ctx, namespace, saref.Name)
+ 	if err != nil {
+@@ -267,6 +300,10 @@ func (v *validator) Validate(ctx context.Context, _ string, public *jwt.Claims,
+ 		}
+ 	}
+ 
++	return v.finalize(ctx, "", public, private, nowTime, podName, podUID, nodeName, nodeUID)
++}
++
++func (v *validator) finalize(ctx context.Context, _ string, public *jwt.Claims, private *privateClaims, nowTime time.Time, podName, podUID, nodeName, nodeUID string) (*apiserverserviceaccount.ServiceAccountInfo, error) {
+ 	// Check special 'warnafter' field for projected service account token transition.
+ 	warnafter := private.Kubernetes.WarnAfter
+ 	if warnafter != nil && *warnafter != 0 {
+diff --git a/pkg/serviceaccount/claims_test.go b/pkg/serviceaccount/claims_test.go
+--- a/pkg/serviceaccount/claims_test.go
++++ b/pkg/serviceaccount/claims_test.go
+@@ -23,6 +23,7 @@ import (
+ 	"testing"
+ 	"time"
+ 
++	"github.com/kcp-dev/logicalcluster/v3"
+ 	"gopkg.in/go-jose/go-jose.v2/jwt"
+ 
+ 	v1 "k8s.io/api/core/v1"
+@@ -313,7 +314,7 @@ type deletionTestCase struct {
+ 
+ type claimTestCase struct {
+ 	name      string
+-	getter    ServiceAccountTokenGetter
++	getter    ServiceAccountTokenClusterGetter
+ 	private   *privateClaims
+ 	expiry    jwt.NumericDate
+ 	notBefore jwt.NumericDate
+@@ -504,6 +505,10 @@ type fakeGetter struct {
+ 	node           *v1.Node
+ }
+ 
++func (f fakeGetter) Cluster(_ logicalcluster.Name) ServiceAccountTokenGetter {
++	return f
++}
++
+ func (f fakeGetter) GetServiceAccount(ctx context.Context, namespace, name string) (*v1.ServiceAccount, error) {
+ 	if f.serviceAccount == nil {
+ 		return nil, apierrors.NewNotFound(schema.GroupResource{Group: "", Resource: "serviceaccounts"}, name)

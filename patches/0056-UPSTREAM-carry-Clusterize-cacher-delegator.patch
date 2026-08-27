@@ -19,7 +19,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go b/stag
  	"k8s.io/apiserver/pkg/features"
  	"k8s.io/apiserver/pkg/storage"
  	"k8s.io/apiserver/pkg/storage/cacher/delegator"
-@@ -332,6 +333,7 @@ func (c consistencyChecker) startChecking(stopCh <-chan struct{}) {
+@@ -329,6 +330,7 @@ func (c consistencyChecker) startChecking(stopCh <-chan struct{}) {
  }
  
  func (c *consistencyChecker) check(ctx context.Context) {

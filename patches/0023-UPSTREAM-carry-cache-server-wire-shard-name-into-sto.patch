@@ -112,7 +112,7 @@ new file mode 100644
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 --- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
-@@ -267,11 +267,18 @@ const (
+@@ -268,11 +268,18 @@ const (
  // to resource directories enforcing namespace rules.
  func NoNamespaceKeyRootFunc(ctx context.Context, prefix string) string {
  	key := prefix
@@ -131,7 +131,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
  	if !cluster.Wildcard {
  		key += "/" + cluster.Name.String()
  	}
-@@ -514,6 +521,12 @@ func (e *Store) create(ctx context.Context, obj runtime.Object, createValidation
+@@ -522,6 +529,12 @@ func (e *Store) create(ctx context.Context, obj runtime.Object, createValidation
  	if err := rest.BeforeCreate(e.CreateStrategy, ctx, obj); err != nil {
  		return nil, err
  	}
@@ -144,7 +144,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
  	// at this point we have a fully formed object.  It is time to call the validators that the apiserver
  	// handling chain wants to enforce.
  	if createValidation != nil {
-@@ -1084,6 +1097,13 @@ func (e *Store) updateForGracefulDeletionAndFinalizers(ctx context.Context, name
+@@ -1092,6 +1105,13 @@ func (e *Store) updateForGracefulDeletionAndFinalizers(ctx context.Context, name
  			if err != nil {
  				return nil, err
  			}
@@ -198,7 +198,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/registry/rest/meta.go b/staging/sr
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go b/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go
 --- a/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go
-@@ -124,7 +124,12 @@ func BeforeUpdate(strategy RESTUpdateStrategy, ctx context.Context, obj, old run
+@@ -123,7 +123,12 @@ func BeforeUpdate(strategy RESTUpdateStrategy, ctx context.Context, obj, old run
  	if err != nil {
  		return err
  	}
@@ -249,7 +249,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go b/stagi
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
-@@ -96,7 +96,9 @@ type watchChan struct {
+@@ -97,7 +97,9 @@ type watchChan struct {
  	resultChan               chan watch.Event
  	getResourceSizeEstimator func() *resourceSizeEstimator
  
@@ -259,7 +259,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  	crdRequest bool
  }
  
-@@ -112,6 +114,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
+@@ -113,6 +115,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
  	if err != nil {
  		return nil, err
  	}
@@ -267,7 +267,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  
  	if opts.Recursive && !strings.HasSuffix(key, "/") {
  		return nil, fmt.Errorf(`recursive key needs to end with "/"`)
-@@ -123,7 +126,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
+@@ -124,7 +127,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
  	if err != nil {
  		return nil, err
  	}
@@ -276,7 +276,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  	go wc.run(isInitialEventsEndBookmarkRequired(opts), areInitialEventsRequired(rev, opts))
  
  	// For etcd watch we don't have an easy way to answer whether the watch
-@@ -136,7 +139,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
+@@ -137,7 +140,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
  	return wc, nil
  }
  
@@ -285,7 +285,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  	wc := &watchChan{
  		watcher:                  w,
  		key:                      key,
-@@ -148,7 +151,9 @@ func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, cl
+@@ -149,7 +152,9 @@ func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, cl
  		resultChan:               make(chan watch.Event, outgoingBufSize),
  		getResourceSizeEstimator: w.getResourceSizeEstimator,
  
@@ -295,7 +295,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  		crdRequest: kcp.CustomResourceIndicatorFrom(ctx),
  	}
  	if pred.Empty() {
-@@ -728,6 +733,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+@@ -729,6 +734,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
  
  		// kcp: apply clusterName to the decoded object, as the name is not persisted in storage.
  		clusterName := adjustClusterNameIfWildcard(wc.shard, wc.cluster, wc.crdRequest, wc.key, e.key)
@@ -303,7 +303,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  		annotateDecodedObjectWith(curObj, clusterName, shardName)
  	}
  	// We need to decode prevValue, only if this is deletion event or
-@@ -749,6 +755,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+@@ -750,6 +756,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
  
  		// kcp: apply clusterName to the decoded object, as the name is not persisted in storage.
  		clusterName := adjustClusterNameIfWildcard(wc.shard, wc.cluster, wc.crdRequest, wc.key, e.key)

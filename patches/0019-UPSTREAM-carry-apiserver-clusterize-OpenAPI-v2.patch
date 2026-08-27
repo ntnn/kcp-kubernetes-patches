@@ -8,8 +8,8 @@ Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 ---
  .../apiserver/pkg/server/genericapiserver.go  |   5 +-
- .../apiserver/pkg/server/routes/openapi.go    | 130 +++++++++++++++++-
- 2 files changed, 127 insertions(+), 8 deletions(-)
+ .../apiserver/pkg/server/routes/openapi.go    | 127 +++++++++++++++++-
+ 2 files changed, 125 insertions(+), 7 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go b/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go
 --- a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go
@@ -22,8 +22,8 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go b/stagi
 +
  	"k8s.io/apiserver/pkg/features"
  	"k8s.io/apiserver/pkg/registry/rest"
- 	"k8s.io/apiserver/pkg/server/healthz"
-@@ -61,7 +63,6 @@ import (
+ 	"k8s.io/apiserver/pkg/server/flagz"
+@@ -62,7 +64,6 @@ import (
  	"k8s.io/klog/v2"
  	openapibuilder3 "k8s.io/kube-openapi/pkg/builder3"
  	openapicommon "k8s.io/kube-openapi/pkg/common"
@@ -31,7 +31,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go b/stagi
  	"k8s.io/kube-openapi/pkg/handler3"
  	openapiutil "k8s.io/kube-openapi/pkg/util"
  	"k8s.io/kube-openapi/pkg/validation/spec"
-@@ -175,7 +176,7 @@ type GenericAPIServer struct {
+@@ -179,7 +180,7 @@ type GenericAPIServer struct {
  
  	// OpenAPIVersionedService controls the /openapi/v2 endpoint, and can be used to update the served spec.
  	// It is set during PrepareRun if `openAPIConfig` is non-nil unless `skipOpenAPIInstallation` is true.
@@ -43,18 +43,18 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go b/stagi
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/routes/openapi.go b/staging/src/k8s.io/apiserver/pkg/server/routes/openapi.go
 --- a/staging/src/k8s.io/apiserver/pkg/server/routes/openapi.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/routes/openapi.go
-@@ -17,12 +17,18 @@ limitations under the License.
+@@ -17,14 +17,19 @@ limitations under the License.
  package routes
  
  import (
--	restful "github.com/emicklei/go-restful/v3"
 +	"net/http"
-+
-+	"github.com/emicklei/go-restful/v3"
-+
-+	"github.com/kcp-dev/logicalcluster/v3"
+ 	"strings"
+ 
+ 	restful "github.com/emicklei/go-restful/v3"
  	"k8s.io/klog/v2"
  
++	"github.com/kcp-dev/logicalcluster/v3"
++
 +	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
  	"k8s.io/apiserver/pkg/server/mux"
  	builder2 "k8s.io/kube-openapi/pkg/builder"
@@ -63,7 +63,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/server/routes/openapi.go b/staging
  	"k8s.io/kube-openapi/pkg/common"
  	"k8s.io/kube-openapi/pkg/common/restfuladapter"
  	"k8s.io/kube-openapi/pkg/handler"
-@@ -36,17 +42,129 @@ type OpenAPI struct {
+@@ -39,17 +44,129 @@ type OpenAPI struct {
  	V3Config *common.OpenAPIV3Config
  }
  
@@ -197,4 +197,4 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/server/routes/openapi.go b/staging
 +	return provider, spec
  }
  
- // InstallV3 adds the static group/versions defined in the RegisteredWebServices to the OpenAPI v3 spec
+ // InstallV3 adds the static group/versions defined in the RegisteredWebServices to the OpenAPI v3 spec.

@@ -176,7 +176,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/namespace/lifecyc
  	*admission.Handler
 -	client             kubernetes.Interface
 +	client             kcpkubernetesclientset.ClusterInterface
- 	immortalNamespaces sets.String
+ 	immortalNamespaces sets.Set[string]
 -	namespaceLister    corelisters.NamespaceLister
 +	namespaceLister    kcpcorev1listers.NamespaceClusterLister
  	// forceLiveLookupCache holds a list of entries for namespaces that we have a strong reason to believe are stale in our local cache.
@@ -251,7 +251,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/namespace/lifecyc
  		switch {
  		case errors.IsNotFound(err):
  			return err
-@@ -200,14 +206,14 @@ func newLifecycleWithClock(immortalNamespaces sets.String, clock utilcache.Clock
+@@ -200,14 +206,14 @@ func newLifecycleWithClock(immortalNamespaces sets.Set[string], clock utilcache.
  }
  
  // SetExternalKubeInformerFactory implements the WantsExternalKubeInformerFactory interface.
@@ -294,7 +294,7 @@ new file mode 100644
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission.go
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/admission.go
-@@ -160,10 +160,11 @@ func (a *QuotaAdmission) ValidateInitialization() error {
+@@ -159,10 +159,11 @@ func (a *QuotaAdmission) ValidateInitialization() error {
  
  // Validate makes admission decisions while enforcing quota
  func (a *QuotaAdmission) Validate(ctx context.Context, attr admission.Attributes, o admission.ObjectInterfaces) (err error) {
